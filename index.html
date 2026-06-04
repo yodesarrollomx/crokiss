@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CroKiss — El primer beso con tu proyecto</title>
+<link href="https://fonts.googleapis.com/css2?family=Saira+Semi+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --fl:'Saira Semi Condensed',sans-serif;
+    --ink:#16181d; --paper:#fbfaf8; --line:#d8d5cd; --accent:#c75b39; --muted:#6b6256;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:#e8e6e1;font-family:var(--fl);color:var(--ink);}
+  .app{display:flex;flex-direction:column;height:100vh;}
+  /* toolbar */
+  .bar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:10px 18px;background:var(--paper);border-bottom:1px solid var(--line);}
+  .brand{font-weight:700;letter-spacing:2px;font-size:16px;}
+  .brand small{display:block;font-weight:400;letter-spacing:3px;font-size:8.5px;color:var(--muted);}
+  .grp{display:flex;align-items:center;gap:7px;}
+  .grp .lbl{font-size:10px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;}
+  .seg{display:flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;}
+  .seg button{appearance:none;border:0;background:var(--paper);color:var(--ink);font-family:var(--fl);font-size:13px;padding:6px 11px;cursor:pointer;border-right:1px solid var(--line);}
+  .seg button:last-child{border-right:0;}
+  .seg button.on{background:var(--ink);color:var(--paper);}
+  .btn{appearance:none;font-family:var(--fl);font-size:13px;padding:7px 13px;border-radius:7px;border:1px solid var(--line);background:var(--paper);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
+  .btn:hover{border-color:var(--ink);}
+  .btn.primary{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+  .btn.warn{color:var(--accent);border-color:var(--accent);}
+  .toggle{display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;user-select:none;}
+  .toggle input{appearance:none;width:34px;height:18px;border-radius:10px;background:var(--line);position:relative;cursor:pointer;transition:.18s;}
+  .toggle input:checked{background:var(--ink);}
+  .toggle input::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:.18s;}
+  .toggle input:checked::after{left:18px;}
+  input[type=range]{width:96px;accent-color:var(--ink);}
+  input[type=number]{width:48px;font-family:var(--fl);font-size:13px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink);}
+  .spacer{flex:1;}
+  a.back{font-size:12px;color:var(--muted);text-decoration:none;border-bottom:1px dotted var(--muted);}
+  /* stage */
+  .stage{flex:1;overflow:auto;padding:34px;display:flex;justify-content:center;align-items:flex-start;}
+  .sheet{background:#fff;box-shadow:0 8px 30px rgba(0,0,0,.13);border:1px solid #ddd;width:min(1180px,96%);}
+  /* info bar */
+  .info{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:9px 18px;background:var(--ink);color:var(--paper);font-size:13px;letter-spacing:.4px;}
+  .info .hint{color:#b9b4a8;font-size:11.5px;letter-spacing:.3px;}
+  #ed_dooracts{display:none;gap:7px;}
+  #ed_widthacts{display:none;gap:7px;}
+  #ed_wallacts{display:none;gap:7px;}
+  #ed_furnacts{display:none;gap:7px;}
+  #ed_dooracts .btn,#ed_widthacts .btn,#ed_wallacts .btn,#ed_furnacts .btn,#ed_delbtn{padding:5px 10px;font-size:12px;background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.25);color:var(--paper);}
+  #ed_delbtn{display:none;}
+  /* paleta de muebles */
+  .palette{position:fixed;top:130px;left:14px;width:182px;max-height:calc(100vh - 220px);overflow:auto;background:var(--paper);border:1px solid var(--line);border-radius:11px;box-shadow:0 10px 30px rgba(0,0,0,.14);padding:11px;z-index:40;transform:translateX(-115%);transition:transform .22s ease;}
+  .palette.open{transform:none;}
+  .palette h4{margin:10px 4px 5px;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);font-weight:600;}
+  .palette h4:first-child{margin-top:2px;}
+  .palette .pgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+  .palette .pbtn{display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 4px;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer;font-family:var(--fl);font-size:10.5px;line-height:1.1;text-align:center;color:var(--ink);}
+  .palette .pbtn:hover{border-color:var(--ink);}
+  .palette .pbtn svg{width:42px;height:30px;}
+  .palette .ptitle{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
+  .palette .ptitle b{font-size:12px;letter-spacing:1px;}
+  .palette .pclose{border:0;background:none;font-size:16px;cursor:pointer;color:var(--muted);line-height:1;}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:11px 20px;border-radius:9px;font-size:13.5px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:90;box-shadow:0 6px 24px rgba(0,0,0,.25);}
+  .toast.show{opacity:1;}
+  /* CroKiss: pill de estado */
+  .ck-pill{font-size:11px;letter-spacing:.4px;padding:4px 10px;border-radius:20px;border:1px solid var(--line);color:var(--muted);background:var(--paper);white-space:nowrap;}
+  .ck-pill--ok{color:#0f6e56;border-color:#9fe1cb;background:#e1f5ee;}
+  .ck-pill--saving{color:#854f0b;border-color:#fac775;background:#faeeda;}
+  .ck-pill--warn{color:#993c1d;border-color:#f0997b;background:#faece7;}
+  /* CroKiss: modales */
+  .ck-overlay{position:fixed;inset:0;background:rgba(22,24,29,.55);display:flex;align-items:center;justify-content:center;z-index:100;padding:18px;}
+  .ck-overlay[hidden]{display:none;}
+  .ck-modal{background:var(--paper);border:1px solid var(--line);border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.3);width:min(440px,96vw);padding:22px 22px 20px;}
+  .ck-modal h3{margin:0 0 2px;font-size:19px;letter-spacing:.5px;}
+  .ck-modal .sub{margin:0 0 16px;font-size:12.5px;color:var(--muted);letter-spacing:.3px;line-height:1.45;}
+  .ck-modal .accent{color:var(--accent);}
+  .ck-field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px;}
+  .ck-field label{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);}
+  .ck-field input[type=text],.ck-field input[type=email]{font-family:var(--fl);font-size:14px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);width:100%;}
+  .ck-row{display:flex;gap:10px;}
+  .ck-row .ck-field{flex:1;}
+  .ck-presets{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 16px;}
+  .ck-chip{font-family:var(--fl);font-size:12px;padding:6px 11px;border:1px solid var(--line);border-radius:20px;background:#fff;color:var(--ink);cursor:pointer;}
+  .ck-chip:hover{border-color:var(--ink);}
+  .ck-actions{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:6px;}
+  .ck-check{display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--muted);margin:2px 0 14px;cursor:pointer;line-height:1.4;}
+  .ck-check input{margin-top:2px;}
+  .ck-link{font-size:12.5px;color:var(--muted);text-decoration:none;border-bottom:1px dotted var(--muted);cursor:pointer;}
+  .ck-hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;}
+  /* impresión: solo la hoja */
+  @media print {
+    body{background:#fff;}
+    .bar,.info,.palette,.toast,.ck-overlay{display:none !important;}
+    .app{height:auto;}
+    .stage{overflow:visible;padding:0;display:block;}
+    .sheet{box-shadow:none;border:0;width:100%;}
+    @page{size:landscape;margin:10mm;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="bar">
+    <div class="brand">Cro<span style="color:var(--accent)">&middot;</span>Kiss<small>POR AURUM ARQUITECTOS</small></div>
+    <span id="ck_status" class="ck-pill">Borrador local</span>
+
+    <div class="grp">
+      <span class="lbl">Snap</span>
+      <div class="seg" id="snapSeg">
+        <button data-v="0">Libre</button>
+        <button data-v="0.05">5</button>
+        <button data-v="0.1" class="on">10</button>
+        <button data-v="0.25">25</button>
+        <button data-v="0.5">50 cm</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <span class="lbl">Muro</span>
+      <input type="range" id="wallRange" min="10" max="30" step="1" value="20">
+      <span id="wallVal" style="font-size:13px;width:42px;">20 cm</span>
+    </div>
+
+    <label class="toggle"><input type="checkbox" id="lenTog" checked><span>Longitudes</span></label>
+    <label class="toggle"><input type="checkbox" id="blockTog" checked><span>Muro de block</span></label>
+
+    <div class="grp" id="blockSizeGrp">
+      <span class="lbl">Block</span>
+      <input type="number" id="blkLen" min="10" max="60" step="1" value="40" title="Largo del block (cm)">
+      <span class="lbl">junta</span>
+      <input type="number" id="blkJoint" min="0" max="5" step="0.5" value="1" title="Junta (cm)">
+      <span class="lbl">cm</span>
+    </div>
+
+    <div class="grp">
+      <span class="lbl">Añadir</span>
+      <button class="btn" id="addWall">+ Muro</button>
+      <button class="btn" id="addWin">+ Ventana</button>
+      <button class="btn" id="addDoor">+ Puerta</button>
+      <button class="btn" id="addSld">+ Corrediza</button>
+      <button class="btn" id="furnBtn">🛋 Muebles</button>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div class="grp">
+      <span class="lbl">Proyecto</span>
+      <button class="btn primary" id="ckSaveBtn">💾 Guardar mi proyecto</button>
+      <button class="btn" id="ckOpenBtn">📂 Abrir con clave</button>
+      <button class="btn" id="ckNewBtn">✦ Nuevo</button>
+      <button class="btn" id="dlBtn">⬇ Respaldo</button>
+      <button class="btn" id="upBtn">⬆ Importar</button>
+    </div>
+    <input type="file" id="fileInput" accept="application/json,.json" style="display:none;">
+
+    <button class="btn" id="undoBtn">↶ Deshacer</button>
+    <button class="btn primary" id="copyBtn">⧉ Copiar resumen</button>
+    <button class="btn" id="printBtn">⎙ Imprimir hoja</button>
+    <a class="btn" id="toPlanBtn" href="Planta Arquitectonica.html" style="text-decoration:none;">Ver plano final →</a>
+  </div>
+
+  <div class="stage">
+    <div class="sheet"><div id="editor"></div></div>
+  </div>
+
+  <div class="palette" id="palette">
+    <div class="ptitle"><b>Muebles</b><button class="pclose" id="palClose">×</button></div>
+    <div id="palBody"></div>
+  </div>
+
+  <div class="info">
+    <span id="ed_info">—</span>
+    <div id="ed_dooracts">
+      <button class="btn" id="hingeBtn">⇄ Bisagra</button>
+      <button class="btn" id="swingBtn">⤺ Apertura</button>
+    </div>
+    <div id="ed_widthacts">
+      <button class="btn" id="narrowBtn">− ancho</button>
+      <button class="btn" id="widenBtn">+ ancho</button>
+    </div>
+    <div id="ed_wallacts">
+      <button class="btn" id="reAllBtn">⬛ Reforzar muro</button>
+      <button class="btn" id="reNoneBtn">⬜ Quitar refuerzo</button>
+    </div>
+    <div id="ed_furnacts">
+      <button class="btn" id="rotBtn">↻ Girar 90°</button>
+    </div>
+    <button class="btn" id="ed_delbtn">✕ Borrar</button>
+    <span class="spacer"></span>
+    <span class="hint">Muebles: arrástralos para mover · esquina = escalar · manija superior o tecla R = girar · Supr = borrar</span>
+  </div>
+</div>
+
+<!-- ===================== CroKiss: modales ===================== -->
+<div class="ck-overlay" id="ck_modal_terreno" hidden>
+  <div class="ck-modal">
+    <h3>El primer beso con tu proyecto <span class="accent">·</span></h3>
+    <p class="sub">Empecemos por el tamaño de tu terreno. Dibujaremos los muros dentro de él.</p>
+    <div class="ck-row">
+      <div class="ck-field"><label>Ancho (m)</label><input type="text" id="ck_ancho" inputmode="decimal" value="10"></div>
+      <div class="ck-field"><label>Fondo (m)</label><input type="text" id="ck_fondo" inputmode="decimal" value="20"></div>
+    </div>
+    <div class="ck-presets" id="ck_presets">
+      <button class="ck-chip" data-w="9"  data-d="20">9 × 20</button>
+      <button class="ck-chip" data-w="10" data-d="20">10 × 20</button>
+      <button class="ck-chip" data-w="8"  data-d="15">8 × 15</button>
+      <button class="ck-chip" data-w="12" data-d="25">12 × 25</button>
+      <button class="ck-chip" data-w="15" data-d="30">15 × 30</button>
+    </div>
+    <div class="ck-actions">
+      <a class="ck-link" id="ck_terreno_abrir">Ya tengo un proyecto → Abrir con clave</a>
+      <button class="btn primary" id="ck_terreno_go">Empezar →</button>
+    </div>
+  </div>
+</div>
+
+<div class="ck-overlay" id="ck_modal_guardar" hidden>
+  <div class="ck-modal">
+    <h3>Guarda y recibe tu plano</h3>
+    <p class="sub">Te enviamos tu plano por correo con una clave para volver a editarlo cuando quieras.</p>
+    <div class="ck-field"><label>Nombre del proyecto</label><input type="text" id="ck_g_plan" placeholder="Mi casa"></div>
+    <div class="ck-field"><label>Tu nombre (opcional)</label><input type="text" id="ck_g_nombre" placeholder="Nombre"></div>
+    <div class="ck-field"><label>Correo</label><input type="email" id="ck_g_correo" placeholder="tucorreo@ejemplo.com" autocomplete="email"></div>
+    <div class="ck-field"><label>Elige una clave para volver</label><input type="text" id="ck_g_clave" placeholder="ej. mi-casa-2026" autocomplete="off"></div>
+    <input type="text" id="ck_g_web" class="ck-hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+    <label class="ck-check"><input type="checkbox" id="ck_g_mkt" checked><span>Quiero recibir información y propuestas de Aurum Arquitectos y Yodesarrollo.</span></label>
+    <div class="ck-actions">
+      <a class="ck-link" id="ck_g_close">Cancelar</a>
+      <button class="btn primary" id="ck_g_go">Guardar y enviarme →</button>
+    </div>
+  </div>
+</div>
+
+<div class="ck-overlay" id="ck_modal_abrir" hidden>
+  <div class="ck-modal">
+    <h3>Abrir con clave</h3>
+    <p class="sub">Escribe el correo y la clave con que guardaste tu proyecto.</p>
+    <div class="ck-field"><label>Correo</label><input type="email" id="ck_a_correo" placeholder="tucorreo@ejemplo.com" autocomplete="email"></div>
+    <div class="ck-field"><label>Clave</label><input type="text" id="ck_a_clave" placeholder="tu clave" autocomplete="off"></div>
+    <div class="ck-actions">
+      <a class="ck-link" id="ck_a_close">Cancelar</a>
+      <button class="btn primary" id="ck_a_go">Abrir →</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="plan-render.js"></script>
+<script src="plan-furniture.js"></script>
+<script src="plan-editor.js"></script>
+<script src="crokiss-cloud.js"></script>
+<script>
+  const ed = new PlanEditor('editor');
+  ed.init();
+  // sincronizar inputs de block con lo guardado
+  document.getElementById('blkLen').value = ed.getBlockLen();
+  document.getElementById('blkJoint').value = ed.getJoint();
+
+  // snap segmented
+  document.getElementById('snapSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    [...e.currentTarget.children].forEach((c) => c.classList.remove('on'));
+    b.classList.add('on');
+    ed.setSnap(parseFloat(b.dataset.v));
+  });
+  // wall thickness
+  const wr = document.getElementById('wallRange'), wv = document.getElementById('wallVal');
+  wr.addEventListener('input', () => { wv.textContent = wr.value + ' cm'; ed.setWallCm(parseInt(wr.value, 10)); });
+  // longitudes
+  document.getElementById('lenTog').addEventListener('change', (e) => ed.setShowLen(e.target.checked));
+  document.getElementById('blockTog').addEventListener('change', (e) => ed.setBlockMode(e.target.checked));
+  document.getElementById('blkLen').addEventListener('change', (e) => { const v = parseFloat(e.target.value) || 40; ed.setBlockLen(v); });
+  document.getElementById('blkJoint').addEventListener('change', (e) => { const v = parseFloat(e.target.value); ed.setJoint(isNaN(v) ? 1 : v); });
+  document.getElementById('printBtn').addEventListener('click', () => window.print());
+  // botones
+  document.getElementById('undoBtn').addEventListener('click', ed.undo);
+  document.getElementById('hingeBtn').addEventListener('click', ed.flipHinge);
+  document.getElementById('swingBtn').addEventListener('click', ed.flipSwing);
+  document.getElementById('ed_delbtn').addEventListener('click', ed.delSel);
+  document.getElementById('narrowBtn').addEventListener('click', () => ed.widen(-0.10));
+  document.getElementById('widenBtn').addEventListener('click', () => ed.widen(0.10));
+  document.getElementById('addWin').addEventListener('click', () => { ed.startPlace('window'); toast('Haz clic en un muro para colocar la ventana'); });
+  document.getElementById('addDoor').addEventListener('click', () => { ed.startPlace('door'); toast('Haz clic en un muro para colocar la puerta'); });
+  document.getElementById('addSld').addEventListener('click', () => { ed.startPlace('slider'); toast('Haz clic en un muro para colocar la corrediza'); });
+  document.getElementById('addWall').addEventListener('click', () => { ed.startPlace('wall'); toast('Arrastra sobre el lienzo para dibujar el muro (se alinea recto)'); });
+  document.getElementById('reAllBtn').addEventListener('click', () => ed.reinforceAll(true));
+  document.getElementById('reNoneBtn').addEventListener('click', () => ed.reinforceAll(false));
+  document.getElementById('rotBtn').addEventListener('click', ed.rotateSel);
+
+  // ---- paleta de muebles ----
+  (function buildPalette(){
+    const cat = (window.PlanFurniture && window.PlanFurniture.CATALOG) || {};
+    const groups = {};
+    Object.keys(cat).forEach((k) => { const g = cat[k].group || 'Otros'; (groups[g] = groups[g] || []).push(k); });
+    const body = document.getElementById('palBody');
+    let html = '';
+    Object.keys(groups).forEach((g) => {
+      html += '<h4>' + g + '</h4><div class="pgrid">';
+      groups[g].forEach((k) => {
+        const c = cat[k];
+        const ar = c.w / c.h, vw = ar >= 1 ? 38 : 38 * ar, vh = ar >= 1 ? 28 / ar : 28;
+        const sym = window.PlanFurniture.draw(k, vw, vh, '#16181d', 1);
+        html += '<button class="pbtn" data-type="' + k + '"><svg viewBox="' + (-vw/2-3) + ' ' + (-vh/2-3) + ' ' + (vw+6) + ' ' + (vh+6) + '">' + sym + '</svg><span>' + c.label + '</span></button>';
+      });
+      html += '</div>';
+    });
+    body.innerHTML = html;
+    body.addEventListener('click', (e) => { const b = e.target.closest('.pbtn'); if (!b) return; ed.placeFurni(b.dataset.type); toast('Haz clic en el plano para colocar: ' + cat[b.dataset.type].label); });
+  })();
+  const palette = document.getElementById('palette');
+  document.getElementById('furnBtn').addEventListener('click', () => palette.classList.toggle('open'));
+  document.getElementById('palClose').addEventListener('click', () => palette.classList.remove('open'));
+
+  function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1900); }
+
+  // ---- Respaldo / Importar (archivo, como red de seguridad) ----
+  document.getElementById('dlBtn').addEventListener('click', () => {
+    const blob = new Blob([ed.exportJSON()], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const d = new Date();
+    a.href = url; a.download = 'CroKiss-plano-'+d.toISOString().slice(0,10)+'.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+    toast('Respaldo descargado — guárdalo en tu compu');
+  });
+  document.getElementById('upBtn').addEventListener('click', () => document.getElementById('fileInput').click());
+  document.getElementById('fileInput').addEventListener('change', (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try { const obj = JSON.parse(r.result); if (ed.loadGeom(obj)) toast('Plano importado correctamente'); else toast('El archivo no tiene un plano válido'); }
+      catch(err){ toast('No se pudo leer el archivo'); }
+    };
+    r.readAsText(file);
+    e.target.value = '';
+  });
+  document.getElementById('copyBtn').addEventListener('click', async () => {
+    const txt = ed.summary();
+    try { await navigator.clipboard.writeText(txt); toast('Resumen copiado'); }
+    catch(e){ const ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); toast('Resumen copiado'); }
+  });
+
+  // ---- CroKiss: nube (terreno, guardar/abrir con clave, sincronización) ----
+  CroKiss.boot(ed);
+</script>
+</body>
+</html>
