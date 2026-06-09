@@ -27,6 +27,7 @@
   .btn:hover{border-color:var(--ink);}
   .btn.primary{background:var(--ink);color:var(--paper);border-color:var(--ink);}
   .btn.warn{color:var(--accent);border-color:var(--accent);}
+  .btn.on{background:var(--ink);color:var(--paper);border-color:var(--ink);}
   .toggle{display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;user-select:none;}
   .toggle input{appearance:none;width:34px;height:18px;border-radius:10px;background:var(--line);position:relative;cursor:pointer;transition:.18s;}
   .toggle input:checked{background:var(--ink);}
@@ -87,6 +88,11 @@
   .ck-check input{margin-top:2px;}
   .ck-link{font-size:12.5px;color:var(--muted);text-decoration:none;border-bottom:1px dotted var(--muted);cursor:pointer;}
   .ck-hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;}
+  .ck-select-list{max-height:50vh;overflow:auto;margin:4px 0 10px;}
+  .ck-proj{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;padding:11px 13px;border:1px solid var(--line);border-radius:9px;background:#fff;cursor:pointer;font-family:var(--fl);margin-bottom:8px;}
+  .ck-proj:hover{border-color:var(--ink);}
+  .ck-proj-name{font-size:14.5px;font-weight:600;color:var(--ink);}
+  .ck-proj-meta{font-size:11.5px;color:var(--muted);letter-spacing:.3px;}
   /* impresión: solo la hoja */
   @media print {
     body{background:#fff;}
@@ -153,6 +159,14 @@
     </div>
     <input type="file" id="fileInput" accept="application/json,.json" style="display:none;">
 
+    <div class="grp">
+      <span class="lbl">Zoom</span>
+      <button class="btn" id="zoomOutBtn" title="Alejar">−</button>
+      <button class="btn" id="zoomFitBtn" title="Ver todo el terreno">⤢ Ajustar</button>
+      <button class="btn" id="zoomInBtn" title="Acercar">+</button>
+      <button class="btn" id="panBtn" title="Mover el plano (o mantén Espacio y arrastra). Ctrl/⌘ + rueda para zoom.">✋ Mover</button>
+    </div>
+
     <button class="btn" id="undoBtn">↶ Deshacer</button>
     <button class="btn primary" id="copyBtn">⧉ Copiar resumen</button>
     <button class="btn" id="printBtn">⎙ Imprimir hoja</button>
@@ -183,6 +197,11 @@
       <button class="btn" id="reNoneBtn">⬜ Quitar refuerzo</button>
     </div>
     <div id="ed_furnacts">
+      <span class="lbl" style="color:#b9b4a8">Ancho</span>
+      <input type="number" id="ck_furn_w" min="10" max="2000" step="1" title="Ancho del mueble (cm)">
+      <span class="lbl" style="color:#b9b4a8">Largo</span>
+      <input type="number" id="ck_furn_h" min="10" max="2000" step="1" title="Largo del mueble (cm)">
+      <span class="lbl" style="color:#b9b4a8">cm</span>
       <button class="btn" id="rotBtn">↻ Girar 90°</button>
     </div>
     <button class="btn" id="ed_delbtn">✕ Borrar</button>
@@ -244,6 +263,18 @@
   </div>
 </div>
 
+<div class="ck-overlay" id="ck_modal_select" hidden>
+  <div class="ck-modal">
+    <h3>Tus proyectos</h3>
+    <p class="sub">Encontramos varios con ese correo y clave. Elige cuál abrir.</p>
+    <div class="ck-select-list" id="ck_select_list"></div>
+    <div class="ck-actions">
+      <a class="ck-link" id="ck_s_close">Cancelar</a>
+      <span></span>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script src="plan-render.js"></script>
@@ -287,6 +318,15 @@
   document.getElementById('reAllBtn').addEventListener('click', () => ed.reinforceAll(true));
   document.getElementById('reNoneBtn').addEventListener('click', () => ed.reinforceAll(false));
   document.getElementById('rotBtn').addEventListener('click', ed.rotateSel);
+  // zoom / mover (solo vista)
+  document.getElementById('zoomInBtn').addEventListener('click', () => ed.zoomIn());
+  document.getElementById('zoomOutBtn').addEventListener('click', () => ed.zoomOut());
+  document.getElementById('zoomFitBtn').addEventListener('click', () => ed.zoomFit());
+  const panBtn = document.getElementById('panBtn');
+  panBtn.addEventListener('click', () => { const on = !panBtn.classList.contains('on'); panBtn.classList.toggle('on', on); ed.setPanMode(on); });
+  // editar tamaño del mueble seleccionado
+  document.getElementById('ck_furn_w').addEventListener('change', (e) => ed.setFurnW(e.target.value));
+  document.getElementById('ck_furn_h').addEventListener('change', (e) => ed.setFurnH(e.target.value));
 
   // ---- paleta de muebles ----
   (function buildPalette(){

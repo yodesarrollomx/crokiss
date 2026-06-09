@@ -48,6 +48,9 @@
     let geom, snap = 0.10, wallCm = 20, showLen = true, sel = null, placing = null, blockMode = true;
     const history = [];
 
+    // ---- zoom / desplazamiento (solo vista; no altera la geometría) ----
+    let vb = null, panMode = false, spaceDown = false, panning = null;
+
     function normalize() {
       geom.walls = geom.walls || [];
       geom.windows = geom.windows || [];
@@ -140,6 +143,61 @@
       const inv = svgEl.getScreenCTM().inverse();
       const u = pt.matrixTransform(inv);
       return { x: (u.x - OX) / PPM, y: (u.y - OY) / PPM };
+    }
+
+    // ---------- vista (zoom + desplazamiento) ----------
+    function currentVB() { return vb ? vb : { x: 0, y: 0, w: VW, h: VH }; }
+    function clampVB() {
+      if (!vb) return;
+      if (vb.w >= VW || vb.h >= VH) { vb = null; return; }     // si abarca todo, vuelve a "Ajustar"
+      vb.x = Math.max(0, Math.min(vb.x, VW - vb.w));
+      vb.y = Math.max(0, Math.min(vb.y, VH - vb.h));
+    }
+    function applyVB() {
+      if (!svgEl) return;
+      clampVB();
+      const v = currentVB();
+      svgEl.setAttribute('viewBox', v.x + ' ' + v.y + ' ' + v.w + ' ' + v.h);
+      svgEl.setAttribute('width', v.w);
+      svgEl.setAttribute('height', v.h);
+    }
+    function zoomTo(ux, uy, factor) {
+      const v = currentVB();
+      let nw = v.w / factor, nh = v.h / factor;
+      const minW = VW * 0.12;                                   // tope de acercamiento (~8x)
+      if (nw < minW) { const r = minW / nw; nw *= r; nh *= r; }
+      if (nw >= VW || nh >= VH) { vb = null; applyVB(); return; } // 100% del terreno = Ajustar
+      vb = { x: ux - (ux - v.x) * (nw / v.w), y: uy - (uy - v.y) * (nh / v.h), w: nw, h: nh };
+      applyVB();
+    }
+    function zoomCenter(factor) { const v = currentVB(); zoomTo(v.x + v.w / 2, v.y + v.h / 2, factor); }
+    function onWheel(ev) {
+      if (!(ev.ctrlKey || ev.metaKey)) return;                  // zoom solo con Ctrl/⌘ + rueda (deja el scroll normal)
+      ev.preventDefault();
+      const v = currentVB(), rect = svgEl.getBoundingClientRect();
+      const ux = v.x + (ev.clientX - rect.left) / rect.width  * v.w;
+      const uy = v.y + (ev.clientY - rect.top)  / rect.height * v.h;
+      zoomTo(ux, uy, ev.deltaY < 0 ? 1.15 : 1 / 1.15);
+    }
+    function startPan(ev) {
+      const v = currentVB();
+      panning = { x0: ev.clientX, y0: ev.clientY, vx: v.x, vy: v.y, w: v.w, h: v.h, cw: svgEl.clientWidth || 1, ch: svgEl.clientHeight || 1 };
+      try { svgEl.setPointerCapture(ev.pointerId); } catch (e) {}
+      svgEl.addEventListener('pointermove', onPanMove);
+      svgEl.addEventListener('pointerup', endPan);
+      svgEl.style.cursor = 'grabbing';
+    }
+    function onPanMove(ev) {
+      if (!panning) return;
+      const kx = panning.w / panning.cw, ky = panning.h / panning.ch;
+      vb = { x: panning.vx - (ev.clientX - panning.x0) * kx, y: panning.vy - (ev.clientY - panning.y0) * ky, w: panning.w, h: panning.h };
+      applyVB();
+    }
+    function endPan() {
+      panning = null;
+      svgEl.removeEventListener('pointermove', onPanMove);
+      svgEl.removeEventListener('pointerup', endPan);
+      svgEl.style.cursor = panMode ? 'grab' : '';
     }
 
     // ============================================================
@@ -399,9 +457,7 @@
       // svg persistente: solo actualizamos su contenido (no recrear el nodo,
       // para no perder la captura del puntero durante el arrastre)
       ensureSvg();
-      svgEl.setAttribute('viewBox', `0 0 ${VW} ${VH}`);
-      svgEl.setAttribute('width', VW);
-      svgEl.setAttribute('height', VH);
+      applyVB();                      // respeta el zoom/posición actual (o ajusta si vb=null)
       svgEl.innerHTML = g;
       updateInfo();
     }
@@ -414,6 +470,7 @@
       root.innerHTML = '';
       root.appendChild(svgEl);
       svgEl.addEventListener('pointerdown', onDown);
+      svgEl.addEventListener('wheel', onWheel, { passive: false });
     }
 
     // ============================================================
@@ -421,6 +478,8 @@
     // ============================================================
     let drag = null;
     function onDown(ev) {
+      // desplazar la vista (modo Mover o barra Espaciadora) — no edita nada
+      if (panMode || spaceDown) { startPan(ev); ev.preventDefault(); return; }
       // modo colocación de MUEBLE: clic en cualquier punto del lienzo
       if (placing && placing.indexOf('furn:') === 0) {
         const type = placing.slice(5);
@@ -581,7 +640,13 @@
     }
 
     // teclas: flechas mueven selección por 1 paso de snap; Supr borra ventana/puerta
+    function isTyping(ev) {
+      const t = ev.target;
+      return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+    }
     function onKey(ev) {
+      if (isTyping(ev)) return;                       // no atajos mientras se escribe en un campo
+      if (ev.key === ' ') { if (!spaceDown) { spaceDown = true; if (svgEl) svgEl.style.cursor = 'grab'; } ev.preventDefault(); return; }
       if (!sel) return;
       const step = snap > 0 ? snap : 0.05;
       const obj = find(sel.kind, sel.id);
@@ -607,6 +672,9 @@
         else if (sel.kind === 'furn') { obj.cx = round2(obj.cx + dx); obj.cy = round2(obj.cy + dy); }
       } else used = false;
       if (used) { save(); render(); ev.preventDefault(); }
+    }
+    function onKeyUp(ev) {
+      if (ev.key === ' ') { spaceDown = false; if (svgEl && !panMode && !panning) svgEl.style.cursor = ''; }
     }
 
     // ---- acciones de selección ----
@@ -685,12 +753,18 @@
       if (la) la.style.display = sel && sel.kind === 'wall' && blockMode ? 'flex' : 'none';
       const fa = document.getElementById('ed_furnacts');
       if (fa) fa.style.display = sel && sel.kind === 'furn' ? 'flex' : 'none';
+      if (sel && sel.kind === 'furn') {
+        const o = find('furn', sel.id);
+        const wi = document.getElementById('ck_furn_w'), hi = document.getElementById('ck_furn_h');
+        if (o && wi && document.activeElement !== wi) wi.value = Math.round(o.w * 100);
+        if (o && hi && document.activeElement !== hi) hi.value = Math.round(o.h * 100);
+      }
       const xa = document.getElementById('ed_delbtn');
       if (xa) xa.style.display = sel ? 'inline-flex' : 'none';
     }
 
     // ---- API pública ----
-    this.init = function () { load(); render(); document.addEventListener('keydown', onKey); };
+    this.init = function () { load(); render(); document.addEventListener('keydown', onKey); document.addEventListener('keyup', onKeyUp); };
     this.setSnap = (v) => { snap = v; render(); };
     this.setWallCm = (v) => { wallCm = v; render(); };
     this.setShowLen = (v) => { showLen = v; render(); };
@@ -710,6 +784,15 @@
     this.reinforceAll = reinforceAll;
     this.rotateSel = rotateSel;
     this.placeFurni = (type) => startPlace('furn:' + type);
+    // zoom / desplazamiento (solo vista)
+    this.zoomIn = () => zoomCenter(1.25);
+    this.zoomOut = () => zoomCenter(1 / 1.25);
+    this.zoomFit = () => { vb = null; applyVB(); };
+    this.setPanMode = (on) => { panMode = !!on; if (svgEl) svgEl.style.cursor = on ? 'grab' : ''; };
+    // editar tamaño del mueble seleccionado (cm)
+    this.setFurnW = (cm) => { const o = find('furn', sel && sel.id); if (!o) return; pushHistory(); o.w = Math.max(0.10, round2((parseFloat(cm) || 0) / 100)); save(); render(); };
+    this.setFurnH = (cm) => { const o = find('furn', sel && sel.id); if (!o) return; pushHistory(); o.h = Math.max(0.10, round2((parseFloat(cm) || 0) / 100)); save(); render(); };
+    this.getSelFurni = () => { const o = find('furn', sel && sel.id); return o ? { w: Math.round(o.w * 100), h: Math.round(o.h * 100) } : null; };
     this.getGeom = () => geom;
     this.exportJSON = () => JSON.stringify(geom, null, 2);
     this.loadGeom = (obj) => {
