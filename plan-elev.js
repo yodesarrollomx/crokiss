@@ -34,6 +34,8 @@
   var EPS = 1e-6;
   var DTOL = 0.20;                                // tolerancia de fusión de planos (m)
   var SLIVER = 0.12;                              // tramos menores se descartan (m)
+  var AXIS_TOL = 0.25;                            // deriva máx. para tratar un muro como recto (m)
+  var GAP_TOL = 0.45;                             // huecos de esquina que el envolvente perdona (m)
   var LABELS = { S: 'FACHADA SUR', N: 'FACHADA NORTE', E: 'FACHADA ORIENTE', O: 'FACHADA PONIENTE' };
 
   // paleta y tabla de plumas (px de plano; equivalen a 0.50/0.35/0.25/0.13 mm)
@@ -51,8 +53,18 @@
     return el('text', Object.assign({ x: x, y: y, 'font-family': FUENTE, 'font-size': size,
       fill: NIVEL, 'paint-order': 'stroke', stroke: '#ffffff', 'stroke-width': 3 }, attrs || {}), t);
   }
-  var isH = function (w) { return Math.abs(w.y1 - w.y2) < EPS; };
-  var isV = function (w) { return Math.abs(w.x1 - w.x2) < EPS; };
+  /* clasificación con tolerancia: un muro dibujado a mano con unos cm de
+     deriva sigue siendo "recto" (antes se OMITÍA del alzado y la vista se
+     colaba al interior de la casa). Solo lo genuinamente oblicuo se omite. */
+  function clase(w) {
+    var dx = Math.abs(w.x1 - w.x2), dy = Math.abs(w.y1 - w.y2);
+    if (dy <= AXIS_TOL && dy <= dx) return 'h';
+    if (dx <= AXIS_TOL && dx < dy) return 'v';
+    return null;                                   // oblicuo de verdad
+  }
+  var isH = function (w) { return clase(w) === 'h'; };
+  var isV = function (w) { return clase(w) === 'v'; };
+  var fijoDe = function (w) { return isH(w) ? (w.y1 + w.y2) / 2 : (w.x1 + w.x2) / 2; };
   var num = function (v, d) { return typeof v === 'number' ? v : d; };   // 0 es válido (antepecho 0 ya no se ignora)
 
   /* barrido 1D con regla de ENVOLVENTE: en cada subintervalo gana el tramo
@@ -69,7 +81,9 @@
       var a = cortes[i], b = cortes[i + 1], mid = (a + b) / 2;
       var env = null, best = null;
       tramos.forEach(function (t) {            // envolvente: el 'ext' más cercano del tramo
-        if (t.ext && t.a <= mid + EPS && t.b >= mid - EPS && (env == null || t.depth > env)) env = t.depth;
+        // GAP_TOL: los huecos pequeños de esquina (perímetros que no cierran
+        // exacto) no abren una rendija por donde "ver" el interior
+        if (t.ext && t.a - GAP_TOL <= mid && t.b + GAP_TOL >= mid && (env == null || t.depth > env)) env = t.depth;
       });
       tramos.forEach(function (t) {
         if (t.a > mid + EPS || t.b < mid - EPS) return;
@@ -119,7 +133,7 @@
     var esExt = function (w) { return !hayExt || w.type === 'ext'; };   // sin tipos: todo es envolvente
     var domLo = -Infinity, domHi = Infinity, marcas = [];
     geom.walls.filter(p.horiz ? isV : isH).forEach(function (w) {       // perpendiculares (todas)
-      marcas.push(p.horiz ? w.x1 : w.y1);
+      marcas.push(fijoDe(w));
     });
     geom.walls.filter(p.horiz ? isH : isV).forEach(function (w) {       // paralelas EXTERIORES
       if (!esExt(w)) return;
@@ -138,7 +152,7 @@
       if (c1 - u1 > 0.05 || u2 - c2 > 0.05) recortados++;
       var s1 = p.sOf(c1), s2 = p.sOf(c2);
       muros.push({ a: Math.min(s1, s2), b: Math.max(s1, s2),
-        depth: p.dOf(p.horiz ? w.y1 : w.x1), ext: esExt(w) });
+        depth: p.dOf(fijoDe(w)), ext: esExt(w) });   // fixed promediado: tolera deriva
     });
     if (!muros.length) return null;
 

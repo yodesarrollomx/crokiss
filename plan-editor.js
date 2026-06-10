@@ -124,8 +124,12 @@
     let VW = 1000, VH = 1000;
 
     // ---------- helpers geométricos ----------
-    const isH = (w) => Math.abs(w.y1 - w.y2) < 1e-6;
-    const isV = (w) => Math.abs(w.x1 - w.x2) < 1e-6;
+    // clasificación con tolerancia: un muro dibujado a mano con unos cm de
+    // deriva cuenta como recto — si no, los vanos colocados sobre él reciben
+    // la orientación equivocada y aparecen como fantasmas en las fachadas
+    const AXIS_TOL = 0.25;
+    const isH = (w) => { const dx = Math.abs(w.x1 - w.x2), dy = Math.abs(w.y1 - w.y2); return dy <= AXIS_TOL && dy <= dx; };
+    const isV = (w) => { const dx = Math.abs(w.x1 - w.x2), dy = Math.abs(w.y1 - w.y2); return dx <= AXIS_TOL && dx < dy; };
     const wallLen = (w) => Math.hypot(w.x2 - w.x1, w.y2 - w.y1);
 
     // divide un muro en blocks (40 cm + junta 1 cm); el último se ajusta al sobrante
@@ -572,7 +576,8 @@
       pushHistory();
       const horizontal = isH(w);
       const tag = horizontal ? 'h' : 'v';
-      const fixed = horizontal ? w.y1 : w.x1;
+      // fixed promediado: en un muro con deriva, el vano queda en su plano medio
+      const fixed = round2(horizontal ? (w.y1 + w.y2) / 2 : (w.x1 + w.x2) / 2);
       const lo = horizontal ? Math.min(w.x1, w.x2) : Math.min(w.y1, w.y2);
       const hi = horizontal ? Math.max(w.x1, w.x2) : Math.max(w.y1, w.y2);
       const click = horizontal ? m.x : m.y;
@@ -730,15 +735,17 @@
 
     // ---- acciones de selección ----
 
-    // extensión del muro sobre el que vive un vano (asociación geométrica)
+    // extensión del muro sobre el que vive un vano (asociación geométrica,
+    // con tolerancia: muros con deriva y fixed promediados siguen casando)
     function wallExtentFor(tag, fixed, a, b) {
       let best = null;
       geom.walls.forEach((w) => {
-        if ((isH(w) ? 'h' : 'v') !== tag) return;
-        const f = isH(w) ? w.y1 : w.x1;
-        if (Math.abs(f - fixed) > 1e-6) return;
-        const lo = isH(w) ? Math.min(w.x1, w.x2) : Math.min(w.y1, w.y2);
-        const hi = isH(w) ? Math.max(w.x1, w.x2) : Math.max(w.y1, w.y2);
+        const cl = isH(w) ? 'h' : (isV(w) ? 'v' : null);
+        if (cl !== tag) return;
+        const f = cl === 'h' ? (w.y1 + w.y2) / 2 : (w.x1 + w.x2) / 2;
+        if (Math.abs(f - fixed) > 0.30) return;
+        const lo = cl === 'h' ? Math.min(w.x1, w.x2) : Math.min(w.y1, w.y2);
+        const hi = cl === 'h' ? Math.max(w.x1, w.x2) : Math.max(w.y1, w.y2);
         if (b > lo - 1e-6 && a < hi + 1e-6) best = { lo, hi };
       });
       return best;
