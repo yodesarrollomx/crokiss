@@ -165,6 +165,7 @@
         <button class="btn primary" id="ckSaveBtn"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 17.6a4.5 4.5 0 0 0-2.6-8.2 6 6 0 0 0-11.6 1.6A4 4 0 0 0 6 19h2"/><path d="M12 12v7"/><path d="m9 15 3-3 3 3"/></svg>Guardar mi proyecto</button>
         <button class="btn" id="ckOpenBtn"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Abrir con clave</button>
         <button class="btn danger" id="ckNewBtn"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 12v6M9 15h6"/></svg>Nuevo</button>
+        <button class="btn" id="btnFachadas" title="Mira las 4 fachadas y edita las alturas de tu proyecto"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11 12 4l8 7"/><path d="M6 10v10h12V10"/><path d="M10 20v-5h4v5"/><path d="M2 20h20" stroke-dasharray="2 3"/></svg>Fachadas</button>
         <button class="btn" id="btnLamina" title="Tu plano como lámina profesional, lista para imprimir o PDF">⎙ Lámina / PDF</button>
         <button class="btn" id="dlBtn" title="Descarga una copia de tu plano a tu equipo">⬇ Respaldo</button>
         <button class="btn" id="upBtn" title="Carga un respaldo descargado antes">⬆ Importar</button>
@@ -331,6 +332,7 @@
 <script src="plan-editor.js"></script>
 <script src="plan-sheet.js"></script>
 <script src="plan-elev.js"></script>
+<script src="plan-elev-editor.js"></script>
 <script src="crokiss-cloud.js"></script>
 <script>
   const ed = new PlanEditor('editor');
@@ -360,6 +362,7 @@
   document.getElementById('blkJoint').addEventListener('change', (e) => { const v = parseFloat(e.target.value); ed.setJoint(isNaN(v) ? 1 : v); });
   document.getElementById('printBtn').addEventListener('click', () => window.print());
   document.getElementById('btnLamina').addEventListener('click', () => window.PlanSheet && PlanSheet.open(ed));
+  document.getElementById('btnFachadas').addEventListener('click', () => window.PlanElevEditor && PlanElevEditor.open(ed));
   // botones
   document.getElementById('undoBtn').addEventListener('click', ed.undo);
   document.getElementById('hingeBtn').addEventListener('click', ed.flipHinge);

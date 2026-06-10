@@ -25,7 +25,7 @@
   const COL_SEL    = '#c75b39';   // selección — acento de marca
 
   // alturas por defecto del proyecto (esquema unificado geom.elev; override opcional por vano en vano.z)
-  const DEF_ELEV = { hMuro: 2.40, antepecho: 0.90, dintel: 2.10, cubierta: 'losa' };
+  const DEF_ELEV = { hMuro: 2.40, antepecho: 0.90, dintel: 2.10, cubierta: 'losa', pretil: 0.35 };
 
   // ---------- geometría inicial (clon de PlanRender) ----------
   function defaultGeom() {
@@ -76,7 +76,8 @@
         hMuro: typeof e.hMuro === 'number' ? e.hMuro : DEF_ELEV.hMuro,
         antepecho: typeof e.antepecho === 'number' ? e.antepecho : DEF_ELEV.antepecho,
         dintel: typeof e.dintel === 'number' ? e.dintel : DEF_ELEV.dintel,
-        cubierta: e.cubierta || DEF_ELEV.cubierta
+        cubierta: e.cubierta || DEF_ELEV.cubierta,
+        pretil: typeof e.pretil === 'number' ? e.pretil : DEF_ELEV.pretil
       };
       wallCm = geom.wallCm;     // la vista sigue al proyecto: el resumen ya no miente al recargar
     }
@@ -908,6 +909,22 @@
     this.getSelFurni = () => { const o = find('furn', sel && sel.id); return o ? { w: Math.round(o.w * 100), h: Math.round(o.h * 100) } : null; };
     this.getGeom = () => geom;
     this.setSheet = (sheet) => { geom.sheet = sheet; save(); };   // preferencias de lámina, persistidas
+    // alturas del proyecto y overrides por vano (editor de fachadas):
+    // pasan por pushHistory para entrar al deshacer normal
+    this.updateElev = (patch) => {
+      pushHistory();
+      geom.elev = geom.elev || {};
+      Object.assign(geom.elev, patch || {});
+      if (typeof geom.elev.pretil !== 'number') geom.elev.pretil = DEF_ELEV.pretil;
+      save(); render();
+    };
+    this.updateVanoZ = (kind, id, zPatch) => {
+      const o = find(kind, id); if (!o) return false;
+      pushHistory();
+      if (zPatch == null) delete o.z;                 // null = volver a las alturas del proyecto
+      else o.z = Object.assign({}, o.z || {}, zPatch);
+      save(); render(); return true;
+    };
     this.exportJSON = () => JSON.stringify(geom, null, 2);
     this.loadGeom = (obj) => {
       if (!obj || !obj.walls) return false;
