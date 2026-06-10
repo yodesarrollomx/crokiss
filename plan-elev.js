@@ -55,7 +55,10 @@
   var isV = function (w) { return Math.abs(w.x1 - w.x2) < EPS; };
   var num = function (v, d) { return typeof v === 'number' ? v : d; };   // 0 es válido (antepecho 0 ya no se ignora)
 
-  /* barrido 1D: en cada subintervalo gana el tramo más cercano al observador */
+  /* barrido 1D con regla de ENVOLVENTE: en cada subintervalo gana el tramo
+     más cercano al observador, pero un muro interior ('int') que esté DETRÁS
+     del muro exterior ('ext') más cercano de ese tramo NUNCA participa —
+     una fachada muestra el exterior de la casa, no un corte por dentro. */
   function sweep(tramos) {
     var cortes = [];
     tramos.forEach(function (t) { cortes.push(t.a, t.b); });
@@ -63,9 +66,15 @@
       .filter(function (v, i, arr) { return i === 0 || v - arr[i - 1] > EPS; });
     var visibles = [];
     for (var i = 0; i < cortes.length - 1; i++) {
-      var a = cortes[i], b = cortes[i + 1], mid = (a + b) / 2, best = null;
+      var a = cortes[i], b = cortes[i + 1], mid = (a + b) / 2;
+      var env = null, best = null;
+      tramos.forEach(function (t) {            // envolvente: el 'ext' más cercano del tramo
+        if (t.ext && t.a <= mid + EPS && t.b >= mid - EPS && (env == null || t.depth > env)) env = t.depth;
+      });
       tramos.forEach(function (t) {
-        if (t.a <= mid + EPS && t.b >= mid - EPS && (!best || t.depth > best.depth)) best = t;
+        if (t.a > mid + EPS || t.b < mid - EPS) return;
+        if (!t.ext && env != null && t.depth < env - EPS) return;   // interior detrás del envolvente: oculto
+        if (!best || t.depth > best.depth) best = t;
       });
       if (!best) continue;
       var last = visibles[visibles.length - 1];
@@ -103,15 +112,20 @@
 
     var p = project(geom, dir);
 
-    /* ---- dominio del alzado: muros perpendiculares + terreno (B1: nada se pasa) ---- */
-    var uLot = p.horiz ? (geom.lot && geom.lot.w) : (geom.lot && geom.lot.d);
-    var domLo = -Infinity, domHi = Infinity;
-    var perp = geom.walls.filter(p.horiz ? isV : isH);
-    if (perp.length >= 2) {
-      var us = perp.map(function (w) { return p.horiz ? w.x1 : w.y1; });
-      domLo = Math.min.apply(null, us); domHi = Math.max.apply(null, us);
-    }
-    if (uLot) { domLo = Math.max(domLo, 0); domHi = Math.min(domHi, uLot); }
+    /* ---- dominio del alzado: muros perpendiculares + envolvente exterior.
+       OJO: el terreno (lot) NO recorta — si la casa está dibujada desplazada
+       o más grande que el terreno capturado, la fachada saldría "en pedazos". */
+    var hayExt = geom.walls.some(function (w) { return w.type === 'ext'; });
+    var esExt = function (w) { return !hayExt || w.type === 'ext'; };   // sin tipos: todo es envolvente
+    var domLo = -Infinity, domHi = Infinity, marcas = [];
+    geom.walls.filter(p.horiz ? isV : isH).forEach(function (w) {       // perpendiculares (todas)
+      marcas.push(p.horiz ? w.x1 : w.y1);
+    });
+    geom.walls.filter(p.horiz ? isH : isV).forEach(function (w) {       // paralelas EXTERIORES
+      if (!esExt(w)) return;
+      marcas.push(p.horiz ? w.x1 : w.y1, p.horiz ? w.x2 : w.y2);
+    });
+    if (marcas.length >= 2) { domLo = Math.min.apply(null, marcas); domHi = Math.max.apply(null, marcas); }
 
     /* ---- muros candidatos, recortados al dominio (en coords de mundo) ---- */
     var recortados = 0;
@@ -123,7 +137,8 @@
       if (c2 - c1 < SLIVER) { if (u2 - u1 > SLIVER) recortados++; return; }
       if (c1 - u1 > 0.05 || u2 - c2 > 0.05) recortados++;
       var s1 = p.sOf(c1), s2 = p.sOf(c2);
-      muros.push({ a: Math.min(s1, s2), b: Math.max(s1, s2), depth: p.dOf(p.horiz ? w.y1 : w.x1) });
+      muros.push({ a: Math.min(s1, s2), b: Math.max(s1, s2),
+        depth: p.dOf(p.horiz ? w.y1 : w.x1), ext: esExt(w) });
     });
     if (!muros.length) return null;
 
