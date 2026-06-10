@@ -1,5 +1,5 @@
 /* ============================================================
-   Editor interactivo de muros y ventanas — Proyecto Marbel
+   Editor interactivo de muros y ventanas — CroKiss (motor heredado del proyecto Marbel)
    Arrastra muros (cuerpo o extremos), ventanas y puertas.
    Snap a retícula, longitudes en vivo, undo, exportar resumen.
    Coordenadas: metros, origen sup-izq, y crece hacia abajo.
@@ -17,6 +17,15 @@
   const round2 = (v) => Math.round(v * 100) / 100;
   const fmt = (v) => round2(v).toFixed(2);
   const DEF_BLOCK_LEN = 0.40, DEF_JOINT = 0.01;   // block 40 cm, junta 1 cm (por defecto)
+
+  // paleta de capas del lienzo: estructura, equipamiento y medidas de un vistazo
+  const COL_MURO   = '#2b2b2b';   // muros y vanos — casi-negro
+  const COL_MUEBLE = '#9a8f85';   // muebles — gris cálido
+  const COL_COTA   = '#c75b39';   // cotas y medidas — terracota
+  const COL_SEL    = '#c75b39';   // selección — acento de marca
+
+  // alturas por defecto del proyecto (esquema unificado geom.elev; override opcional por vano en vano.z)
+  const DEF_ELEV = { hMuro: 2.40, antepecho: 0.90, dintel: 2.10, cubierta: 'losa' };
 
   // ---------- geometría inicial (clon de PlanRender) ----------
   function defaultGeom() {
@@ -60,6 +69,16 @@
       if (typeof geom.blockLen !== 'number') geom.blockLen = DEF_BLOCK_LEN;
       if (typeof geom.joint !== 'number') geom.joint = DEF_JOINT;
       geom.walls.forEach((w) => { if (!Array.isArray(w.re)) w.re = []; });
+      // espesor de muro y alturas persistidos en el geom (defaults si el plano viene sin ellos)
+      if (typeof geom.wallCm !== 'number') geom.wallCm = 20;
+      const e = geom.elev || {};
+      geom.elev = {
+        hMuro: typeof e.hMuro === 'number' ? e.hMuro : DEF_ELEV.hMuro,
+        antepecho: typeof e.antepecho === 'number' ? e.antepecho : DEF_ELEV.antepecho,
+        dintel: typeof e.dintel === 'number' ? e.dintel : DEF_ELEV.dintel,
+        cubierta: e.cubierta || DEF_ELEV.cubierta
+      };
+      wallCm = geom.wallCm;     // la vista sigue al proyecto: el resumen ya no miente al recargar
     }
 
     // ---- persistencia ----
@@ -74,16 +93,19 @@
       try { localStorage.setItem(KEY, JSON.stringify(geom)); } catch (e) {}
     }
     function pushHistory() {
-      history.push(JSON.stringify(geom));
+      const s = JSON.stringify(geom);
+      if (history.length && history[history.length - 1] === s) return;   // sin estados repetidos: ↶ siempre hace algo
+      history.push(s);
       if (history.length > 60) history.shift();
     }
     function undo() {
       if (!history.length) return;
       geom = JSON.parse(history.pop());
+      normalize();                      // resincroniza wallCm/elev con el estado restaurado
       sel = null; save(); render();
     }
     function reset() {
-      pushHistory(); geom = defaultGeom(); sel = null; save(); render();
+      pushHistory(); geom = defaultGeom(); normalize(); sel = null; save(); render();
     }
 
     // ---- snap ----
@@ -261,7 +283,7 @@
             const by = bk.horizontal ? Y(bk.fixed) - tpx / 2 : Y(bk.s);
             const bw = bk.horizontal ? (bk.e - bk.s) * PPM : tpx;
             const bh = bk.horizontal ? tpx : (bk.e - bk.s) * PPM;
-            walls += el('rect', { x: bx, y: by, width: bw, height: bh, fill: reinf ? '#16181d' : '#e7e4dd', stroke: isSel ? '#c75b39' : '#16181d', 'stroke-width': isSel ? 1.4 : 1 });
+            walls += el('rect', { x: bx, y: by, width: bw, height: bh, fill: reinf ? COL_MURO : '#e7e4dd', stroke: isSel ? COL_SEL : COL_MURO, 'stroke-width': isSel ? 1.4 : 1 });
             if (reinf) {
               // varilla (sección de acero) al centro del block
               const cx = bx + bw / 2, cy = by + bh / 2, rr = Math.min(tpx * 0.22, bw * 0.18, bh * 0.18, 5);
@@ -269,7 +291,7 @@
             }
           });
         } else {
-          walls += el('line', { x1: X(w.x1), y1: Y(w.y1), x2: X(w.x2), y2: Y(w.y2), stroke: isSel ? '#c75b39' : '#16181d', 'stroke-width': tpx, 'stroke-linecap': 'square' });
+          walls += el('line', { x1: X(w.x1), y1: Y(w.y1), x2: X(w.x2), y2: Y(w.y2), stroke: isSel ? COL_SEL : COL_MURO, 'stroke-width': tpx, 'stroke-linecap': 'square' });
         }
       });
       g += walls;
@@ -292,7 +314,7 @@
       let win = '';
       geom.windows.forEach((wn) => {
         const isSel = sel && sel.kind === 'window' && sel.id === wn.id;
-        const col = isSel ? '#c75b39' : '#16181d';
+        const col = isSel ? COL_SEL : COL_MURO;
         if (wn.wall === 'h') {
           const y = Y(wn.fixed);
           [-tpx / 2, 0, tpx / 2].forEach((o) => win += el('line', { x1: X(wn.a), y1: y + o, x2: X(wn.b), y2: y + o, stroke: col, 'stroke-width': 1.4 }));
@@ -311,7 +333,7 @@
       let sld = '';
       geom.sliders.forEach((s) => {
         const isSel = sel && sel.kind === 'slider' && sel.id === s.id;
-        const col = isSel ? '#c75b39' : '#16181d';
+        const col = isSel ? COL_SEL : COL_MURO;
         const sw = 1.4, gap = tpx * 0.22;
         if (s.wall === 'v') {
           const x = X(s.fixed), mid = (s.a + s.b) / 2;
@@ -333,7 +355,7 @@
       let doors = '';
       geom.doors.forEach((d) => {
         const isSel = sel && sel.kind === 'door' && sel.id === d.id;
-        const col = isSel ? '#c75b39' : '#16181d';
+        const col = isSel ? COL_SEL : COL_MURO;
         const wpx = d.w * PPM, hX = X(d.hx), hY = Y(d.hy);
         const aTipX = hX + d.along[0] * wpx, aTipY = hY + d.along[1] * wpx;
         const oTipX = hX + d.open[0] * wpx, oTipY = hY + d.open[1] * wpx;
@@ -349,7 +371,7 @@
       const FL = (window.PlanFurniture || null);
       geom.furniture.forEach((f) => {
         const isSel = sel && sel.kind === 'furn' && sel.id === f.id;
-        const col = isSel ? '#c75b39' : '#3a3a3a';
+        const col = isSel ? COL_SEL : COL_MUEBLE;
         const cx = X(f.cx), cy = Y(f.cy), wpx = f.w * PPM, hpx = f.h * PPM;
         const sym = FL ? FL.draw(f.type, wpx, hpx, col, isSel ? 1.6 : 1.2) : '';
         furn += el('g', { transform: `translate(${cx} ${cy}) rotate(${f.rot || 0})` }, sym);
@@ -371,7 +393,7 @@
       }
 
       // cotas globales (huella bbox)
-      const ink = '#16181d';
+      const ink = COL_COTA;   // cotas en terracota: medidas distinguibles de un vistazo
       let dims = '';
       const dyB = OY - 64;
       dims += el('line', { x1: X(0), y1: dyB, x2: X(b.maxX), y2: dyB, stroke: ink, 'stroke-width': 0.9 });
@@ -485,15 +507,19 @@
         const type = placing.slice(5);
         const m = clientToM(ev.clientX, ev.clientY);
         placeFurniture(type, m);
-        placing = null; svgEl.style.cursor = ''; render();
+        placing = null; svgEl.style.cursor = ''; placeBanner(false); render();
         ev.preventDefault(); return;
       }
       // modo colocación de VANO: clic en muro o block coloca el elemento
       if (placing && placing !== 'wall') {
         const wt = ev.target.closest('[data-kind="wall"], [data-kind="block"]');
         const w = wt ? find('wall', wt.getAttribute('data-id')) : null;
-        if (w) placeOnWall(placing, w, clientToM(ev.clientX, ev.clientY));
-        placing = null; svgEl.style.cursor = ''; render();
+        if (!w) {   // clic fuera de un muro: el modo sigue activo, no se consume en silencio
+          placeBanner(true, 'Eso no fue un muro — haz clic SOBRE un muro');
+          ev.preventDefault(); return;
+        }
+        placeOnWall(placing, w, clientToM(ev.clientX, ev.clientY));
+        placing = null; svgEl.style.cursor = ''; placeBanner(false); render();
         ev.preventDefault(); return;
       }
       // modo dibujar MURO: arrastra de inicio a fin
@@ -503,7 +529,7 @@
         const sx = snapV(m.x), sy = snapV(m.y);
         const w = { id: nid('w'), type: 'int', x1: sx, y1: sy, x2: sx, y2: sy, re: [] };
         geom.walls.push(w); sel = { kind: 'wall', id: w.id };
-        placing = null; svgEl.style.cursor = '';
+        placing = null; svgEl.style.cursor = ''; placeBanner(false);
         drag = { kind: 'drawwall', id: w.id, m0: m };
         try { svgEl.setPointerCapture(ev.pointerId); } catch (e) {}
         svgEl.addEventListener('pointermove', onMove);
@@ -646,6 +672,8 @@
     }
     function onKey(ev) {
       if (isTyping(ev)) return;                       // no atajos mientras se escribe en un campo
+      if (ev.key === 'Escape' && placing) { cancelPlace(); ev.preventDefault(); return; }
+      if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'z' || ev.key === 'Z')) { undo(); ev.preventDefault(); return; }
       if (ev.key === ' ') { if (!spaceDown) { spaceDown = true; if (svgEl) svgEl.style.cursor = 'grab'; } ev.preventDefault(); return; }
       if (!sel) return;
       const step = snap > 0 ? snap : 0.05;
@@ -656,7 +684,7 @@
         if (sel.kind === 'window') { pushHistory(); geom.windows = geom.windows.filter((o) => o.id !== sel.id); sel = null; }
         else if (sel.kind === 'slider') { pushHistory(); geom.sliders = geom.sliders.filter((o) => o.id !== sel.id); sel = null; }
         else if (sel.kind === 'door') { pushHistory(); geom.doors = geom.doors.filter((o) => o.id !== sel.id); sel = null; }
-        else if (sel.kind === 'wall') { pushHistory(); geom.walls = geom.walls.filter((o) => o.id !== sel.id); sel = null; }
+        else if (sel.kind === 'wall') { pushHistory(); removeWallAndVanos(sel.id); sel = null; }
         else if (sel.kind === 'furn') { pushHistory(); geom.furniture = geom.furniture.filter((o) => o.id !== sel.id); sel = null; }
         else used = false;
       } else if (ev.key === 'r' || ev.key === 'R') {
@@ -667,8 +695,30 @@
         const dx = ev.key === 'ArrowLeft' ? -step : ev.key === 'ArrowRight' ? step : 0;
         const dy = ev.key === 'ArrowUp' ? -step : ev.key === 'ArrowDown' ? step : 0;
         if (sel.kind === 'wall') { obj.x1 = round2(obj.x1 + dx); obj.x2 = round2(obj.x2 + dx); obj.y1 = round2(obj.y1 + dy); obj.y2 = round2(obj.y2 + dy); }
-        else if (sel.kind === 'window' || sel.kind === 'slider') { if (obj.wall === 'h') { obj.a = round2(obj.a + dx); obj.b = round2(obj.b + dx); } else { obj.a = round2(obj.a + dy); obj.b = round2(obj.b + dy); } }
-        else if (sel.kind === 'door') { if (obj.wall === 'h') obj.hx = round2(obj.hx + dx); else obj.hy = round2(obj.hy + dy); }
+        else if (sel.kind === 'window' || sel.kind === 'slider') {
+          const d = obj.wall === 'h' ? dx : dy;
+          let na = round2(obj.a + d), nb = round2(obj.b + d);
+          const ext = wallExtentFor(obj.wall, obj.fixed, obj.a, obj.b);
+          if (ext) {                                  // el vano no se sale de su muro
+            if (na < ext.lo) { na = round2(ext.lo); nb = round2(ext.lo + (obj.b - obj.a)); }
+            if (nb > ext.hi) { nb = round2(ext.hi); na = round2(ext.hi - (obj.b - obj.a)); }
+          }
+          obj.a = na; obj.b = nb;
+        }
+        else if (sel.kind === 'door') {
+          const horizontal = obj.wall === 'h';
+          const d = horizontal ? dx : dy;
+          let pos = round2((horizontal ? obj.hx : obj.hy) + d);
+          const spn = (horizontal ? obj.along[0] : obj.along[1]) * obj.w;
+          const f = horizontal ? obj.hy : obj.hx;
+          const cur = horizontal ? obj.hx : obj.hy;
+          const ext = wallExtentFor(obj.wall, f, Math.min(cur, cur + spn), Math.max(cur, cur + spn));
+          if (ext) {                                  // la puerta tampoco se sale
+            if (Math.min(pos, pos + spn) < ext.lo) pos = round2(ext.lo - Math.min(0, spn));
+            if (Math.max(pos, pos + spn) > ext.hi) pos = round2(ext.hi - Math.max(0, spn));
+          }
+          if (horizontal) obj.hx = pos; else obj.hy = pos;
+        }
         else if (sel.kind === 'furn') { obj.cx = round2(obj.cx + dx); obj.cy = round2(obj.cy + dy); }
       } else used = false;
       if (used) { save(); render(); ev.preventDefault(); }
@@ -678,9 +728,41 @@
     }
 
     // ---- acciones de selección ----
+
+    // extensión del muro sobre el que vive un vano (asociación geométrica)
+    function wallExtentFor(tag, fixed, a, b) {
+      let best = null;
+      geom.walls.forEach((w) => {
+        if ((isH(w) ? 'h' : 'v') !== tag) return;
+        const f = isH(w) ? w.y1 : w.x1;
+        if (Math.abs(f - fixed) > 1e-6) return;
+        const lo = isH(w) ? Math.min(w.x1, w.x2) : Math.min(w.y1, w.y2);
+        const hi = isH(w) ? Math.max(w.x1, w.x2) : Math.max(w.y1, w.y2);
+        if (b > lo - 1e-6 && a < hi + 1e-6) best = { lo, hi };
+      });
+      return best;
+    }
+
+    // al borrar un muro se van también sus vanos (nada de ventanas flotando),
+    // pero un vano se conserva si OTRO muro restante lo sigue hospedando
+    // (caso de muros colineales contiguos en el mismo eje)
+    function removeWallAndVanos(id) {
+      const w = find('wall', id); if (!w) return;
+      geom.walls = geom.walls.filter((o) => o.id !== id);
+      geom.windows = geom.windows.filter((o) => wallExtentFor(o.wall, o.fixed, o.a, o.b));
+      geom.sliders = geom.sliders.filter((o) => wallExtentFor(o.wall, o.fixed, o.a, o.b));
+      geom.doors = geom.doors.filter((d) => {
+        const horizontal = d.wall === 'h';
+        const f = horizontal ? d.hy : d.hx;
+        const pos = horizontal ? d.hx : d.hy;
+        const spn = (horizontal ? d.along[0] : d.along[1]) * d.w;
+        return wallExtentFor(d.wall, f, Math.min(pos, pos + spn), Math.max(pos, pos + spn));
+      });
+    }
+
     function flipHinge() { const o = find('door', sel && sel.id); if (!o) return; pushHistory(); o.hx += o.along[0] * o.w; o.hy += o.along[1] * o.w; o.along = [-o.along[0], -o.along[1]]; save(); render(); }
     function flipSwing() { const o = find('door', sel && sel.id); if (!o) return; pushHistory(); o.open = [-o.open[0], -o.open[1]]; save(); render(); }
-    function delSel() { if (!sel) return; if (sel.kind === 'window') { pushHistory(); geom.windows = geom.windows.filter((o) => o.id !== sel.id); } else if (sel.kind === 'slider') { pushHistory(); geom.sliders = geom.sliders.filter((o) => o.id !== sel.id); } else if (sel.kind === 'door') { pushHistory(); geom.doors = geom.doors.filter((o) => o.id !== sel.id); } else if (sel.kind === 'wall') { pushHistory(); geom.walls = geom.walls.filter((o) => o.id !== sel.id); } else if (sel.kind === 'furn') { pushHistory(); geom.furniture = geom.furniture.filter((o) => o.id !== sel.id); } sel = null; save(); render(); }
+    function delSel() { if (!sel) return; if (sel.kind === 'window') { pushHistory(); geom.windows = geom.windows.filter((o) => o.id !== sel.id); } else if (sel.kind === 'slider') { pushHistory(); geom.sliders = geom.sliders.filter((o) => o.id !== sel.id); } else if (sel.kind === 'door') { pushHistory(); geom.doors = geom.doors.filter((o) => o.id !== sel.id); } else if (sel.kind === 'wall') { pushHistory(); removeWallAndVanos(sel.id); } else if (sel.kind === 'furn') { pushHistory(); geom.furniture = geom.furniture.filter((o) => o.id !== sel.id); } sel = null; save(); render(); }
 
     function rotateSel() { if (!sel || sel.kind !== 'furn') return; const o = find('furn', sel.id); if (!o) return; pushHistory(); o.rot = (((o.rot || 0) + 90) % 360); save(); render(); }
 
@@ -692,7 +774,31 @@
       else { const c = (o.a + o.b) / 2; const half = Math.max(0.20, (o.b - o.a) / 2 + delta / 2); o.a = round2(c - half); o.b = round2(c + half); }
       save(); render();
     }
-    function startPlace(type) { placing = type; if (svgEl) svgEl.style.cursor = 'crosshair'; sel = null; render(); }
+    // banda persistente del modo colocación: el usuario siempre sabe qué espera la app
+    const PLACE_LABELS = {
+      wall: 'Arrastra sobre el lienzo para dibujar el muro',
+      window: 'Haz clic sobre un muro para colocar la ventana',
+      slider: 'Haz clic sobre un muro para colocar la corrediza',
+      door: 'Haz clic sobre un muro para colocar la puerta'
+    };
+    function placeBanner(on, text) {
+      let b = document.getElementById('ed_placebanner');
+      if (!on) { if (b) b.remove(); return; }
+      if (!b) {
+        b = document.createElement('div');
+        b.id = 'ed_placebanner';
+        b.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#16181d;color:#fbfaf8;padding:9px 16px;border-radius:9px;font-size:13.5px;font-family:var(--fl);z-index:60;box-shadow:0 6px 18px rgba(0,0,0,.25);pointer-events:none;max-width:92vw;text-align:center;';
+        document.body.appendChild(b);
+      }
+      b.textContent = text + ' · Esc para cancelar';
+    }
+    function cancelPlace() { placing = null; if (svgEl) svgEl.style.cursor = ''; placeBanner(false); render(); }
+    function startPlace(type) {
+      placing = type; if (svgEl) svgEl.style.cursor = 'crosshair'; sel = null;
+      const label = type.indexOf('furn:') === 0 ? 'Haz clic donde quieras colocar el mueble' : PLACE_LABELS[type] || 'Haz clic para colocar';
+      placeBanner(true, label);
+      render();
+    }
     // reforzar / liberar todos los blocks del muro seleccionado
     function reinforceAll(flag) {
       if (!sel || sel.kind !== 'wall') return; const w = find('wall', sel.id); if (!w) return;
@@ -703,11 +809,18 @@
 
     // ---- exportar resumen legible ----
     function summary() {
-      let s = 'RESUMEN DE GEOMETRÍA — Proyecto Marbel (metros)\n';
+      let s = 'RESUMEN DEL PLANO — CroKiss · Aurum Arquitectos (metros)\n';
       s += 'Espesor de muro: ' + wallCm + ' cm\n';
+      const ev = geom.elev || DEF_ELEV;
+      s += 'Alturas: muro ' + fmt(ev.hMuro) + ' m · antepecho ' + fmt(ev.antepecho) + ' m · dintel ' + fmt(ev.dintel) + ' m · cubierta ' + ev.cubierta + '\n';
       s += 'Huella (bbox): ' + fmt(bounds().maxX) + ' × ' + fmt(bounds().maxY) + ' m\n\n';
       s += 'MUROS [tipo  (x1,y1)→(x2,y2)  long]:\n';
       geom.walls.forEach((w, i) => { s += `  ${i + 1}. ${w.type}  (${fmt(w.x1)},${fmt(w.y1)})→(${fmt(w.x2)},${fmt(w.y2)})  L=${fmt(wallLen(w))}\n`; });
+      const mlTotal = geom.walls.reduce((t, w) => t + wallLen(w), 0);
+      const blocksTotal = geom.walls.reduce((t, w) => t + wallBlocks(w).length, 0);
+      const reinfTotal = geom.walls.reduce((t, w) => t + (w.re || []).length, 0);
+      s += `  TOTAL: ${geom.walls.length} muros · ${fmt(mlTotal)} m lineales · ${blocksTotal} blocks (${reinfTotal} reforzados)\n`;
+      s += `  Vanos: ${geom.windows.length} ventanas · ${geom.doors.length} puertas · ${geom.sliders.length} corredizas\n`;
       s += '\nVENTANAS [muro fixed  a→b  ancho]:\n';
       geom.windows.forEach((w, i) => { s += `  ${i + 1}. ${w.wall} @${fmt(w.fixed)}  ${fmt(w.a)}→${fmt(w.b)}  (${fmt(w.b - w.a)})\n`; });
       s += '\nPUERTAS CORREDIZAS [muro fixed  a→b  ancho]:\n';
@@ -766,7 +879,7 @@
     // ---- API pública ----
     this.init = function () { load(); render(); document.addEventListener('keydown', onKey); document.addEventListener('keyup', onKeyUp); };
     this.setSnap = (v) => { snap = v; render(); };
-    this.setWallCm = (v) => { wallCm = v; render(); };
+    this.setWallCm = (v) => { wallCm = v; geom.wallCm = v; save(); render(); };   // persiste: el resumen ya no miente al recargar
     this.setShowLen = (v) => { showLen = v; render(); };
     this.undo = undo;
     this.reset = reset;
@@ -794,10 +907,14 @@
     this.setFurnH = (cm) => { const o = find('furn', sel && sel.id); if (!o) return; pushHistory(); o.h = Math.max(0.10, round2((parseFloat(cm) || 0) / 100)); save(); render(); };
     this.getSelFurni = () => { const o = find('furn', sel && sel.id); return o ? { w: Math.round(o.w * 100), h: Math.round(o.h * 100) } : null; };
     this.getGeom = () => geom;
+    this.setSheet = (sheet) => { geom.sheet = sheet; save(); };   // preferencias de lámina, persistidas
     this.exportJSON = () => JSON.stringify(geom, null, 2);
     this.loadGeom = (obj) => {
       if (!obj || !obj.walls) return false;
-      pushHistory(); geom = obj; normalize(); sel = null; save(); render(); return true;
+      // la pila de deshacer se vacía: un ↶ tras abrir un proyecto jamás debe
+      // resucitar el borrador anterior (y subirlo encima del proyecto en la nube)
+      history.length = 0;
+      geom = obj; normalize(); sel = null; save(); render(); return true;
     };
     // guardado con nombre en localStorage (no se borra al restablecer)
     this.saveSlot = (name) => {

@@ -8,26 +8,42 @@
 <style>
   :root{
     --fl:'Saira Semi Condensed',sans-serif;
-    --ink:#16181d; --paper:#fbfaf8; --line:#d8d5cd; --accent:#c75b39; --muted:#6b6256;
+    --ink:#16181d; --paper:#fbfaf8; --paper-2:#f4f2ee; --line:#d8d5cd;
+    --accent:#c75b39; --accent-dn:#b34e30; --muted:#6b6256;
+    --ok:#0f6e56; --warn:#854f0b; --err:#993c1d;
+    --r-s:7px; --r-m:10px; --r-l:14px;
+    --t:140ms ease; /* transiciones suaves, <=150ms */
   }
   *{box-sizing:border-box;}
   html,body{margin:0;height:100%;background:#e8e6e1;font-family:var(--fl);color:var(--ink);}
-  .app{display:flex;flex-direction:column;height:100vh;}
-  /* toolbar */
-  .bar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:10px 18px;background:var(--paper);border-bottom:1px solid var(--line);}
-  .brand{font-weight:700;letter-spacing:2px;font-size:16px;}
+  .app{display:flex;flex-direction:column;height:100vh;height:100dvh;}
+  /* ---- barra de herramientas en dos niveles ---- */
+  .bar{background:var(--paper);border-bottom:1px solid var(--line);border-top:3px solid var(--accent);}
+  .bar-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:8px 16px;}
+  .bar-row + .bar-row{border-top:1px solid #e9e6e0;padding-top:7px;padding-bottom:7px;}
+  .brand{font-weight:700;letter-spacing:2px;font-size:16px;line-height:1.05;}
   .brand small{display:block;font-weight:400;letter-spacing:3px;font-size:8.5px;color:var(--muted);}
-  .grp{display:flex;align-items:center;gap:7px;}
+  .grp{display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
   .grp .lbl{font-size:10px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;}
-  .seg{display:flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;}
-  .seg button{appearance:none;border:0;background:var(--paper);color:var(--ink);font-family:var(--fl);font-size:13px;padding:6px 11px;cursor:pointer;border-right:1px solid var(--line);}
+  .sep{width:1px;align-self:stretch;min-height:26px;background:var(--line);flex:none;}
+  .seg{display:flex;border:1px solid var(--line);border-radius:var(--r-s);overflow:hidden;}
+  .seg button{appearance:none;border:0;background:var(--paper);color:var(--ink);font-family:var(--fl);font-size:13px;padding:6px 11px;cursor:pointer;border-right:1px solid var(--line);transition:background-color var(--t),color var(--t);}
   .seg button:last-child{border-right:0;}
+  .seg button:hover{background:var(--paper-2);}
+  .seg button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
   .seg button.on{background:var(--ink);color:var(--paper);}
-  .btn{appearance:none;font-family:var(--fl);font-size:13px;padding:7px 13px;border-radius:7px;border:1px solid var(--line);background:var(--paper);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
-  .btn:hover{border-color:var(--ink);}
-  .btn.primary{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+  /* sistema de botones: primario (acento) / secundario (neutro) / peligro sutil */
+  .btn{appearance:none;font-family:var(--fl);font-size:13px;padding:7px 13px;min-height:34px;border-radius:var(--r-s);border:1px solid var(--line);background:var(--paper);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:background-color var(--t),border-color var(--t),color var(--t),box-shadow var(--t);}
+  .btn:hover{border-color:var(--ink);background:var(--paper-2);}
+  .btn:active{transform:translateY(1px);}
+  .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .btn.primary:hover{background:var(--accent-dn);border-color:var(--accent-dn);}
   .btn.warn{color:var(--accent);border-color:var(--accent);}
+  .btn.danger{color:var(--err);border-color:#e6bcab;}
+  .btn.danger:hover{background:#faece7;border-color:var(--err);color:#7c2f15;}
   .btn.on{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+  .btn .ic{width:20px;height:20px;flex:none;}
   .toggle{display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;user-select:none;}
   .toggle input{appearance:none;width:34px;height:18px;border-radius:10px;background:var(--line);position:relative;cursor:pointer;transition:.18s;}
   .toggle input:checked{background:var(--ink);}
@@ -37,12 +53,16 @@
   input[type=number]{width:48px;font-family:var(--fl);font-size:13px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink);}
   .spacer{flex:1;}
   a.back{font-size:12px;color:var(--muted);text-decoration:none;border-bottom:1px dotted var(--muted);}
-  /* stage */
+  /* stage: lienzo ligeramente cálido y retícula más tenue */
   .stage{flex:1;overflow:auto;padding:34px;display:flex;justify-content:center;align-items:flex-start;}
-  .sheet{background:#fff;box-shadow:0 8px 30px rgba(0,0,0,.13);border:1px solid #ddd;width:min(1180px,96%);}
+  .sheet{background:#faf8f6;box-shadow:0 8px 30px rgba(0,0,0,.12);border:1px solid #ddd9d2;width:min(1180px,96%);}
+  #editor line[stroke="#e2e0db"]{stroke:#eceae5;}   /* retícula de metros, más suave */
+  #editor line[stroke="#eeece8"]{stroke:#f4f2ee;}   /* subretícula de snap, más suave */
   /* info bar */
-  .info{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:9px 18px;background:var(--ink);color:var(--paper);font-size:13px;letter-spacing:.4px;}
-  .info .hint{color:#b9b4a8;font-size:11.5px;letter-spacing:.3px;}
+  .info{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:10px 18px;background:var(--ink);color:var(--paper);font-size:13.5px;letter-spacing:.4px;}
+  .info .hint{color:#c9c4b8;font-size:12px;letter-spacing:.3px;}
+  .info .lbl{color:#c9c4b8;}
+  #ed_furnacts input[type=number]{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.25);color:var(--paper);}
   #ed_dooracts{display:none;gap:7px;}
   #ed_widthacts{display:none;gap:7px;}
   #ed_wallacts{display:none;gap:7px;}
@@ -93,6 +113,22 @@
   .ck-proj:hover{border-color:var(--ink);}
   .ck-proj-name{font-size:14.5px;font-weight:600;color:var(--ink);}
   .ck-proj-meta{font-size:11.5px;color:var(--muted);letter-spacing:.3px;}
+  .ck-mini{font-size:11.5px;color:var(--muted);letter-spacing:.3px;}
+  /* barra para reactivar el guardado al abrir por enlace (?open=ID) */
+  .ck-clavebar{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:9px;flex-wrap:wrap;justify-content:center;background:var(--paper);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 32px rgba(0,0,0,.22);padding:11px 14px;font-size:13px;z-index:80;max-width:94vw;}
+  .ck-clavebar input{font-family:var(--fl);font-size:13.5px;padding:8px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);width:150px;}
+  /* pantallas angostas: la barra envuelve y los controles crecen al dedo */
+  @media (max-width:760px){
+    .bar-row{gap:8px;padding:7px 10px;}
+    .grp .lbl{display:none;}
+    .btn{min-height:40px;padding:8px 12px;}
+    .seg button{padding:9px 10px;}
+    .stage{padding:14px;}
+    .info{font-size:12.5px;gap:10px;padding:9px 12px;}
+    .info .hint{display:none;}
+    .palette{top:auto;bottom:64px;max-height:46vh;}
+    .ck-modal{padding:18px 16px 16px;}
+  }
   /* impresión: solo la hoja */
   @media print {
     body{background:#fff;}
@@ -107,70 +143,80 @@
 <body>
 <div class="app">
   <div class="bar">
-    <div class="brand">Cro<span style="color:var(--accent)">&middot;</span>Kiss<small>POR AURUM ARQUITECTOS</small></div>
-    <span id="ck_status" class="ck-pill">Borrador local</span>
+    <!-- nivel 1: lo que el usuario usa todo el tiempo (dibujar + proyecto) -->
+    <div class="bar-row">
+      <div class="brand">Cro<span style="color:var(--accent)">&middot;</span>Kiss<small>POR AURUM ARQUITECTOS</small></div>
+      <span id="ck_status" class="ck-pill">Borrador local</span>
+      <div class="sep"></div>
 
-    <div class="grp">
-      <span class="lbl">Snap</span>
-      <div class="seg" id="snapSeg">
-        <button data-v="0">Libre</button>
-        <button data-v="0.05">5</button>
-        <button data-v="0.1" class="on">10</button>
-        <button data-v="0.25">25</button>
-        <button data-v="0.5">50 cm</button>
+      <div class="grp">
+        <span class="lbl">Dibujar</span>
+        <button class="btn" id="addWall">+ Muro</button>
+        <button class="btn" id="addWin">+ Ventana</button>
+        <button class="btn" id="addDoor">+ Puerta</button>
+        <button class="btn" id="addSld">+ Corrediza</button>
+        <button class="btn" id="furnBtn"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11V8a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v3"/><path d="M3 13a2 2 0 0 1 4 0v1h10v-1a2 2 0 0 1 4 0v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M6 18v2M18 18v2"/></svg>Muebles</button>
       </div>
+
+      <div class="spacer"></div>
+
+      <div class="grp">
+        <span class="lbl">Proyecto</span>
+        <button class="btn primary" id="ckSaveBtn"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 17.6a4.5 4.5 0 0 0-2.6-8.2 6 6 0 0 0-11.6 1.6A4 4 0 0 0 6 19h2"/><path d="M12 12v7"/><path d="m9 15 3-3 3 3"/></svg>Guardar mi proyecto</button>
+        <button class="btn" id="ckOpenBtn"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Abrir con clave</button>
+        <button class="btn danger" id="ckNewBtn"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 12v6M9 15h6"/></svg>Nuevo</button>
+        <button class="btn" id="btnLamina" title="Tu plano como lámina profesional, lista para imprimir o PDF">⎙ Lámina / PDF</button>
+        <button class="btn" id="dlBtn" title="Descarga una copia de tu plano a tu equipo">⬇ Respaldo</button>
+        <button class="btn" id="upBtn" title="Carga un respaldo descargado antes">⬆ Importar</button>
+      </div>
+      <input type="file" id="fileInput" accept="application/json,.json" style="display:none;">
     </div>
 
-    <div class="grp">
-      <span class="lbl">Muro</span>
-      <input type="range" id="wallRange" min="10" max="30" step="1" value="20">
-      <span id="wallVal" style="font-size:13px;width:42px;">20 cm</span>
+    <!-- nivel 2: ajustes y vista (el usuario casual puede ignorarlo) -->
+    <div class="bar-row">
+      <div class="grp">
+        <span class="lbl">Snap</span>
+        <div class="seg" id="snapSeg">
+          <button data-v="0">Libre</button>
+          <button data-v="0.05">5</button>
+          <button data-v="0.1" class="on">10</button>
+          <button data-v="0.25">25</button>
+          <button data-v="0.5">50 cm</button>
+        </div>
+      </div>
+
+      <div class="grp">
+        <span class="lbl">Muro</span>
+        <input type="range" id="wallRange" min="10" max="30" step="1" value="20">
+        <span id="wallVal" style="font-size:13px;width:42px;">20 cm</span>
+      </div>
+
+      <label class="toggle"><input type="checkbox" id="lenTog" checked><span>Longitudes</span></label>
+      <label class="toggle"><input type="checkbox" id="blockTog" checked><span>Muro de block</span></label>
+
+      <div class="grp" id="blockSizeGrp">
+        <span class="lbl">Block</span>
+        <input type="number" id="blkLen" min="10" max="60" step="1" value="40" title="Largo del block (cm)">
+        <span class="lbl">junta</span>
+        <input type="number" id="blkJoint" min="0" max="5" step="0.5" value="1" title="Junta (cm)">
+        <span class="lbl">cm</span>
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="grp">
+        <span class="lbl">Vista</span>
+        <button class="btn" id="zoomOutBtn" title="Alejar">−</button>
+        <button class="btn" id="zoomFitBtn" title="Ver todo el terreno">⤢ Ajustar</button>
+        <button class="btn" id="zoomInBtn" title="Acercar">+</button>
+        <button class="btn" id="panBtn" title="Mover el plano (o mantén Espacio y arrastra). Ctrl/⌘ + rueda para zoom."><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M2 12h20"/><path d="m9 5 3-3 3 3M9 19l3 3 3-3M5 9 2 12l3 3M19 9l3 3-3 3"/></svg>Mover</button>
+      </div>
+      <div class="sep"></div>
+
+      <button class="btn" id="undoBtn">↶ Deshacer</button>
+      <button class="btn" id="copyBtn">⧉ Copiar resumen</button>
+      <button class="btn" id="printBtn">⎙ Imprimir hoja</button>
     </div>
-
-    <label class="toggle"><input type="checkbox" id="lenTog" checked><span>Longitudes</span></label>
-    <label class="toggle"><input type="checkbox" id="blockTog" checked><span>Muro de block</span></label>
-
-    <div class="grp" id="blockSizeGrp">
-      <span class="lbl">Block</span>
-      <input type="number" id="blkLen" min="10" max="60" step="1" value="40" title="Largo del block (cm)">
-      <span class="lbl">junta</span>
-      <input type="number" id="blkJoint" min="0" max="5" step="0.5" value="1" title="Junta (cm)">
-      <span class="lbl">cm</span>
-    </div>
-
-    <div class="grp">
-      <span class="lbl">Añadir</span>
-      <button class="btn" id="addWall">+ Muro</button>
-      <button class="btn" id="addWin">+ Ventana</button>
-      <button class="btn" id="addDoor">+ Puerta</button>
-      <button class="btn" id="addSld">+ Corrediza</button>
-      <button class="btn" id="furnBtn">🛋 Muebles</button>
-    </div>
-
-    <div class="spacer"></div>
-
-    <div class="grp">
-      <span class="lbl">Proyecto</span>
-      <button class="btn primary" id="ckSaveBtn">💾 Guardar mi proyecto</button>
-      <button class="btn" id="ckOpenBtn">📂 Abrir con clave</button>
-      <button class="btn" id="ckNewBtn">✦ Nuevo</button>
-      <button class="btn" id="dlBtn">⬇ Respaldo</button>
-      <button class="btn" id="upBtn">⬆ Importar</button>
-    </div>
-    <input type="file" id="fileInput" accept="application/json,.json" style="display:none;">
-
-    <div class="grp">
-      <span class="lbl">Zoom</span>
-      <button class="btn" id="zoomOutBtn" title="Alejar">−</button>
-      <button class="btn" id="zoomFitBtn" title="Ver todo el terreno">⤢ Ajustar</button>
-      <button class="btn" id="zoomInBtn" title="Acercar">+</button>
-      <button class="btn" id="panBtn" title="Mover el plano (o mantén Espacio y arrastra). Ctrl/⌘ + rueda para zoom.">✋ Mover</button>
-    </div>
-
-    <button class="btn" id="undoBtn">↶ Deshacer</button>
-    <button class="btn primary" id="copyBtn">⧉ Copiar resumen</button>
-    <button class="btn" id="printBtn">⎙ Imprimir hoja</button>
-    <a class="btn" id="toPlanBtn" href="Planta Arquitectonica.html" style="text-decoration:none;">Ver plano final →</a>
   </div>
 
   <div class="stage">
@@ -228,7 +274,10 @@
     </div>
     <div class="ck-actions">
       <a class="ck-link" id="ck_terreno_abrir">Ya tengo un proyecto → Abrir con clave</a>
-      <button class="btn primary" id="ck_terreno_go">Empezar →</button>
+      <span style="display:flex;gap:10px;align-items:center;">
+        <a class="ck-link" id="ck_terreno_close">Cancelar</a>
+        <button class="btn primary" id="ck_terreno_go">Empezar →</button>
+      </span>
     </div>
   </div>
 </div>
@@ -280,6 +329,8 @@
 <script src="plan-render.js"></script>
 <script src="plan-furniture.js"></script>
 <script src="plan-editor.js"></script>
+<script src="plan-sheet.js"></script>
+<script src="plan-elev.js"></script>
 <script src="crokiss-cloud.js"></script>
 <script>
   const ed = new PlanEditor('editor');
@@ -295,15 +346,20 @@
     b.classList.add('on');
     ed.setSnap(parseFloat(b.dataset.v));
   });
-  // wall thickness
+  // wall thickness (el slider arranca con el espesor guardado en el proyecto)
   const wr = document.getElementById('wallRange'), wv = document.getElementById('wallVal');
+  try { const g = ed.getGeom(); if (g && g.wallCm) { wr.value = g.wallCm; wv.textContent = g.wallCm + ' cm'; ed.setWallCm(g.wallCm); } } catch (e) {}
   wr.addEventListener('input', () => { wv.textContent = wr.value + ' cm'; ed.setWallCm(parseInt(wr.value, 10)); });
+  // el modal de terreno se puede cancelar (no atrapa al usuario tras "Nuevo")
+  const tClose = document.getElementById('ck_terreno_close');
+  if (tClose) tClose.addEventListener('click', () => document.getElementById('ck_modal_terreno').setAttribute('hidden', ''));
   // longitudes
   document.getElementById('lenTog').addEventListener('change', (e) => ed.setShowLen(e.target.checked));
   document.getElementById('blockTog').addEventListener('change', (e) => ed.setBlockMode(e.target.checked));
   document.getElementById('blkLen').addEventListener('change', (e) => { const v = parseFloat(e.target.value) || 40; ed.setBlockLen(v); });
   document.getElementById('blkJoint').addEventListener('change', (e) => { const v = parseFloat(e.target.value); ed.setJoint(isNaN(v) ? 1 : v); });
   document.getElementById('printBtn').addEventListener('click', () => window.print());
+  document.getElementById('btnLamina').addEventListener('click', () => window.PlanSheet && PlanSheet.open(ed));
   // botones
   document.getElementById('undoBtn').addEventListener('click', ed.undo);
   document.getElementById('hingeBtn').addEventListener('click', ed.flipHinge);
@@ -311,10 +367,11 @@
   document.getElementById('ed_delbtn').addEventListener('click', ed.delSel);
   document.getElementById('narrowBtn').addEventListener('click', () => ed.widen(-0.10));
   document.getElementById('widenBtn').addEventListener('click', () => ed.widen(0.10));
-  document.getElementById('addWin').addEventListener('click', () => { ed.startPlace('window'); toast('Haz clic en un muro para colocar la ventana'); });
-  document.getElementById('addDoor').addEventListener('click', () => { ed.startPlace('door'); toast('Haz clic en un muro para colocar la puerta'); });
-  document.getElementById('addSld').addEventListener('click', () => { ed.startPlace('slider'); toast('Haz clic en un muro para colocar la corrediza'); });
-  document.getElementById('addWall').addEventListener('click', () => { ed.startPlace('wall'); toast('Arrastra sobre el lienzo para dibujar el muro (se alinea recto)'); });
+  // la banda persistente del editor ya indica qué hacer en modo colocación
+  document.getElementById('addWin').addEventListener('click', () => ed.startPlace('window'));
+  document.getElementById('addDoor').addEventListener('click', () => ed.startPlace('door'));
+  document.getElementById('addSld').addEventListener('click', () => ed.startPlace('slider'));
+  document.getElementById('addWall').addEventListener('click', () => ed.startPlace('wall'));
   document.getElementById('reAllBtn').addEventListener('click', () => ed.reinforceAll(true));
   document.getElementById('reNoneBtn').addEventListener('click', () => ed.reinforceAll(false));
   document.getElementById('rotBtn').addEventListener('click', ed.rotateSel);
