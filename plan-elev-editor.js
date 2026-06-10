@@ -43,17 +43,22 @@
       '#ck_elevedit .fe-tabs button:disabled{opacity:.35;cursor:default;}' +
       '#ck_elevedit .fe-body{flex:1;display:flex;min-height:0;}' +
       '#ck_elevedit .fe-view{flex:1;display:flex;align-items:center;justify-content:center;overflow:auto;padding:20px;min-width:0;}' +
-      '#ck_elevedit .fe-stage{background:#fff;border:1px solid #d8d5cd;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.12);padding:14px;max-width:100%;max-height:100%;display:flex;flex-direction:column;}' +
-      '#ck_elevedit .fe-stage svg{display:block;max-width:100%;max-height:62vh;height:auto;}' +
+      '#ck_elevedit .fe-stage{background:#fff;border:1px solid #d8d5cd;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.12);padding:14px;width:min(1280px,100%);display:flex;flex-direction:column;}' +
+      /* B2: el svg llena el ancho disponible (sin esto cae al default 300×150 px) */
+      '#ck_elevedit .fe-stage svg{display:block;width:100%;height:auto;max-height:64vh;}' +
       '#ck_elevedit .fe-stage h4{margin:8px 4px 0;font-size:13px;letter-spacing:.12em;color:#16181d;}' +
+      '#ck_elevedit .fe-stage .fe-meta{margin:3px 4px 0;font-size:11.5px;color:#6b6256;letter-spacing:.03em;}' +
+      '#ck_elevedit .fe-stage .fe-avisos{margin:3px 4px 0;font-size:11.5px;color:#854f0b;}' +
       '#ck_elevedit .fe-stage [data-kind]{cursor:pointer;}' +
-      '#ck_elevedit .fe-empty{color:#6b6256;font-size:14px;}' +
+      '#ck_elevedit .fe-stage [data-kind]:hover{opacity:.82;}' +
+      '#ck_elevedit .fe-empty{color:#6b6256;font-size:14px;max-width:420px;line-height:1.5;text-align:center;}' +
       '#ck_elevedit .fe-side{width:300px;flex:none;background:#fbfaf8;border-left:1px solid #d8d5cd;overflow:auto;padding:16px 18px;}' +
       '#ck_elevedit .fe-side h3{margin:2px 0 10px;font-size:13px;letter-spacing:.1em;color:#16181d;border-bottom:2px solid ' + ACENTO + ';padding-bottom:6px;}' +
       '#ck_elevedit .fe-side .campo{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:9px 0;font-size:13px;color:#3c3a37;}' +
       '#ck_elevedit .fe-side input,#ck_elevedit .fe-side select{font-family:inherit;font-size:13px;padding:5px 7px;border:1px solid #c9c4ba;border-radius:7px;width:96px;background:#fff;}' +
       '#ck_elevedit .fe-side select{width:140px;}' +
-      '#ck_elevedit .fe-sel{margin-top:18px;padding-top:4px;}' +
+      '#ck_elevedit .fe-sel{margin-top:18px;padding:12px 14px;border:1.5px solid ' + ACENTO + ';border-radius:10px;background:#fff;}' +
+      '#ck_elevedit .fe-stats{margin-top:18px;padding:10px 12px;border:1px solid #d8d5cd;border-radius:10px;background:#fff;font-size:12.5px;color:#3c3a37;line-height:1.7;}' +
       '#ck_elevedit .fe-sel .pista{font-size:12px;color:#6b6256;margin:6px 0 10px;}' +
       '#ck_elevedit .fe-sel .tag{display:inline-block;background:' + ACENTO + ';color:#fff;font-size:11.5px;letter-spacing:.06em;padding:2px 9px;border-radius:99px;margin-bottom:8px;}' +
       '#ck_elevedit .fe-side button{font-family:inherit;font-size:12.5px;padding:7px 11px;border-radius:8px;border:1px solid #c9c4ba;background:#fff;color:#16181d;cursor:pointer;}' +
@@ -88,32 +93,37 @@
     DIRS.forEach(function (d) {
       var b = document.getElementById('fe_tab_' + d);
       if (!b) return;
-      var hay = !!(window.PlanElev && PlanElev.facade(geom(), d));
-      b.disabled = !hay;
+      var f = window.PlanElev ? PlanElev.facade(geom(), d) : null;
+      b.disabled = !f;
+      // pestaña informativa: número de vanos y bandera de avisos del modelo
+      b.innerHTML = TABS[d] + (f ? ' · ' + f.stats.nVanos + (f.avisos.length ? ' ⚠' : '') : '');
       b.classList.toggle('on', d === dirAct);
     });
   }
 
+  var NOMBRES = { window: 'Ventana', slider: 'Corrediza', door: 'Puerta' };
+
   function renderView() {
     var view = ov.querySelector('.fe-view');
-    var f = window.PlanElev ? PlanElev.facade(geom(), dirAct) : null;
+    // el resaltado y las cotas vivas los dibuja el propio motor de fachadas
+    var f = window.PlanElev ? PlanElev.facade(geom(), dirAct, { textos: true, resaltar: selVano }) : null;
     if (!f) {
-      view.innerHTML = '<div class="fe-empty">No hay muros que den hacia esta orientación.</div>';
+      view.innerHTML = '<div class="fe-empty">Esta orientación aún no tiene muros.<br>' +
+        'Dibuja en la planta un muro que dé hacia este lado y su fachada aparecerá aquí automáticamente.</div>';
       return;
     }
-    // viewBox con holgura para las líneas de nivel y sus etiquetas
+    // viewBox con holgura para niveles (izquierda) y cota de alturas (derecha)
     var w = f.widthM * PPM, h = f.heightM * PPM;
+    var vbX = -155, vbW = w + 155 + 115, vbY = -16, vbH = h + 34;
     view.innerHTML =
       '<div class="fe-stage">' +
-        '<svg id="fe_svg" viewBox="' + (-70) + ' ' + (-14) + ' ' + (w + 140) + ' ' + (h + 28) + '">' + f.svg + '</svg>' +
-        '<h4>' + esc(f.label) + '</h4>' +
+        '<svg id="fe_svg" viewBox="' + vbX + ' ' + vbY + ' ' + vbW + ' ' + vbH + '" ' +
+          'width="' + Math.round(vbW / 2) + '" height="' + Math.round(vbH / 2) + '">' + f.svg + '</svg>' +
+        '<h4>' + esc(f.label) + (selVano ? ' · ' + (NOMBRES[selVano.kind] || '') + ' seleccionada' : '') + '</h4>' +
+        '<div class="fe-meta">Muro ' + f.stats.muroM2 + ' m² · vanos ' + f.stats.vanoM2 + ' m² · ' +
+          f.stats.pctHuecos + '% de huecos</div>' +
+        (f.avisos.length ? '<div class="fe-avisos">⚠ ' + f.avisos.map(esc).join(' · ') + '</div>' : '') +
       '</div>';
-
-    // resaltar el vano seleccionado (si sigue visible en esta fachada)
-    if (selVano) {
-      var nodo = view.querySelector('[data-kind="' + selVano.kind + '"][data-id="' + selVano.id + '"]');
-      if (nodo) { nodo.setAttribute('stroke', ACENTO); nodo.setAttribute('stroke-width', 3); }
-    }
 
     // selección por clic: figura con data-kind/data-id selecciona, fondo deselecciona
     view.querySelector('.fe-stage').addEventListener('click', function (ev) {
@@ -146,9 +156,8 @@
     // panel del elemento seleccionado
     var o = selVano ? findVano(selVano.kind, selVano.id) : null;
     if (o) {
-      var nombres = { window: 'Ventana', slider: 'Corrediza', door: 'Puerta' };
       h += '<div class="fe-sel"><h3>ESTE ELEMENTO</h3>';
-      h += '<span class="tag">' + nombres[selVano.kind] + ' · ' + esc(o.id) + '</span>';
+      h += '<span class="tag">' + NOMBRES[selVano.kind] + ' · ' + esc(o.id) + '</span>';
       if (selVano.kind === 'window') {
         var ant = (o.z && o.z.antepecho != null) ? o.z.antepecho : e.antepecho;
         var alto = (o.z && o.z.alto != null) ? o.z.alto : Math.max(0.2, e.dintel - ant);

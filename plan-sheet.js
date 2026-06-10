@@ -131,9 +131,11 @@
 
   /* ---------- utilidades compartidas entre páginas ---------- */
   function huella(geom) {                            // extensión del dibujo (m)
+    // si hay terreno, ÉL manda: la cota general no se infla con muros sucios
+    // que se pasan del perímetro (el dibujo se recorta a esta extensión)
+    if (geom.lot && geom.lot.w > 0 && geom.lot.d > 0) return { x: geom.lot.w, y: geom.lot.d };
     var maxX = 0, maxY = 0;
     geom.walls.forEach(function (w) { maxX = Math.max(maxX, w.x1, w.x2); maxY = Math.max(maxY, w.y1, w.y2); });
-    if (geom.lot) { maxX = Math.max(maxX, geom.lot.w); maxY = Math.max(maxY, geom.lot.d); }
     return { x: maxX || 10, y: maxY || 10 };
   }
   function marcoDoble(W, H) {
@@ -156,9 +158,9 @@
   }
   /* fachadas disponibles: allFacades de PlanElev si existe; si no, el
      proveedor registrado con setElevProvider (una sola fachada) */
-  function fachadasDe(geom) {
+  function fachadasDe(geom, elevOpts) {
     var PE = window.PlanElev;
-    if (PE && PE.allFacades) return PE.allFacades(geom) || [];
+    if (PE && PE.allFacades) return PE.allFacades(geom, elevOpts) || [];
     if (elevProvider) { var f = elevProvider(geom); return f ? [f] : []; }
     return [];
   }
@@ -250,10 +252,13 @@
 
     var s = marcoDoble(W, H);
 
-    // ----- plano centrado en su zona -----
+    // ----- plano centrado en su zona, recortado al terreno -----
     var pw = hu.x * mmPerM, ph = hu.y * mmPerM;
     var px0 = dz.x + (dz.w - pw) / 2, py0 = dz.y + holg + (planoH - holg * 2 - ph) / 2;
-    s += el('g', { transform: 'translate(' + px0 + ' ' + py0 + ') scale(' + pxToMm + ')' }, planSVG(geom, geom.wallCm));
+    s += '<defs><clipPath id="ckclip1"><rect x="' + (-0.3 * PPM) + '" y="' + (-0.3 * PPM) +
+      '" width="' + ((hu.x + 0.6) * PPM) + '" height="' + ((hu.y + 0.6) * PPM) + '"/></clipPath></defs>';
+    s += el('g', { transform: 'translate(' + px0 + ' ' + py0 + ') scale(' + pxToMm + ')',
+      'clip-path': 'url(#ckclip1)' }, planSVG(geom, geom.wallCm));
 
     // cotas generales (huella)
     s += cota(px0, py0 - 5, px0 + pw, py0 - 5, fmt1(hu.x) + ' m');
@@ -278,50 +283,65 @@
   function buildPage2(geom, opts) {
     opts = opts || {};
     if (opts.conFachada === false) return null;
-    var fachadas = fachadasDe(geom).slice(0, 4);
+    // las fachadas de la lámina van SIN textos del motor (a 1:100-1:200 serían
+    // motas ilegibles); las anotaciones legibles se ponen aquí en mm de papel
+    var fachadas = fachadasDe(geom, { textos: false }).slice(0, 4);
     if (!fachadas.length) return null;               // sin fachadas, la lámina queda de 1 página
 
     var F = FORMATOS[opts.formato] || FORMATOS.carta;
     var W = F.w, H = F.h;
     var dz = { x: M + 4, y: M + 4, w: W - M * 2 - CAJ - 8, h: H - M * 2 - 8 };
-    var gap = 5, labelH = 7, holg = 5;               // separación, etiqueta y holgura por celda
+    var gap = 5, labelH = 6, holg = 4;
     var gridH = dz.h - 9;                            // franja inferior para la escala gráfica
-    var cellW = (dz.w - gap) / 2, cellH = (gridH - gap) / 2;
-    var availW = cellW - holg * 2, availH = cellH - labelH - holg * 2;
 
-    // escala estándar ÚNICA: la menor en la que cabe la PEOR fachada en su celda
-    var escala = 0;
-    for (var i = 0; i < ESCALAS.length; i++) {
-      var e = ESCALAS[i];
-      var caben = fachadas.every(function (f) {
-        return f.widthM * 1000 / e <= availW && f.heightM * 1000 / e <= availH;
-      });
-      if (caben) { escala = e; break; }
-    }
-    if (!escala) {
+    // layout adaptativo: rejilla 2×2 o filas a todo lo ancho — gana el que dé
+    // la MENOR escala (dibujo más grande), con la misma escala para todas
+    function escalaPara(cols, rows) {
+      var cw = (dz.w - gap * (cols - 1)) / cols, ch = (gridH - gap * (rows - 1)) / rows;
+      var aw = cw - holg * 2, ah = ch - labelH - holg * 2;
+      for (var i = 0; i < ESCALAS.length; i++) {
+        var e = ESCALAS[i];
+        var caben = fachadas.every(function (f) {
+          return f.widthM * 1000 / e <= aw && f.heightM * 1000 / e <= ah;
+        });
+        if (caben) return e;
+      }
       var peor = 0;
-      fachadas.forEach(function (f) {
-        peor = Math.max(peor, f.widthM * 1000 / availW, f.heightM * 1000 / availH);
-      });
-      escala = Math.ceil(peor / 25) * 25;
+      fachadas.forEach(function (f) { peor = Math.max(peor, f.widthM * 1000 / aw, f.heightM * 1000 / ah); });
+      return Math.ceil(peor / 25) * 25;
+    }
+    var n = fachadas.length;
+    var candidatos = n > 2 ? [{ cols: 2, rows: 2 }, { cols: 1, rows: n }] : [{ cols: 1, rows: n }];
+    var layout = candidatos[0], escala = escalaPara(layout.cols, layout.rows);
+    for (var c = 1; c < candidatos.length; c++) {
+      var e2 = escalaPara(candidatos[c].cols, candidatos[c].rows);
+      if (e2 < escala) { layout = candidatos[c]; escala = e2; }
     }
     var mmPerM = 1000 / escala, fScale = mmPerM / PPM;
+    var cellW = (dz.w - gap * (layout.cols - 1)) / layout.cols;
+    var cellH = (gridH - gap * (layout.rows - 1)) / layout.rows;
 
     var s = marcoDoble(W, H);
 
-    // separadores sutiles de la rejilla
-    s += el('line', { x1: dz.x + cellW + gap / 2, y1: dz.y, x2: dz.x + cellW + gap / 2, y2: dz.y + gridH, stroke: LINEA, 'stroke-width': 0.3 });
-    if (fachadas.length > 2) {
-      s += el('line', { x1: dz.x, y1: dz.y + cellH + gap / 2, x2: dz.x + dz.w, y2: dz.y + cellH + gap / 2, stroke: LINEA, 'stroke-width': 0.3 });
-    }
-
     fachadas.forEach(function (f, i) {
-      var col = i % 2, fila = (i / 2) | 0;
+      var col = i % layout.cols, fila = (i / layout.cols) | 0;
       var cx0 = dz.x + col * (cellW + gap), cy0 = dz.y + fila * (cellH + gap);
       var fw = f.widthM * mmPerM, fh = f.heightM * mmPerM;
       var fx = cx0 + (cellW - fw) / 2, fy = cy0 + holg + (cellH - labelH - holg * 2 - fh) / 2;
       s += el('g', { transform: 'translate(' + fx + ' ' + fy + ') scale(' + fScale + ')' }, f.svg);
-      s += txt(cx0 + cellW / 2, cy0 + cellH - 2, (f.label || 'FACHADA') + ' · ESC 1:' + escala, 3.6, { peso: 700, esp: 0.8, ancla: 'middle' });
+      // etiqueta PEGADA al dibujo (no flotando al fondo de la celda)
+      s += txt(cx0 + cellW / 2, fy + fh + 4.2, (f.label || 'FACHADA') + ' · ESC 1:' + escala, 3.4, { peso: 700, esp: 0.8, ancla: 'middle' });
+      // niveles en mm de papel (legibles): altura de muro y remate, a la derecha del dibujo
+      var hTot = f.heightM - 0.25;
+      s += el('line', { x1: fx + fw + 2, y1: fy + fh - 0.25 * mmPerM, x2: fx + fw + 2, y2: fy + fh - 0.25 * mmPerM - hTot * mmPerM, stroke: ACENTO, 'stroke-width': 0.25 });
+      [[0, 'NPT'], [hTot, '+' + hTot.toFixed(2)]].forEach(function (niv) {
+        var ny = fy + fh - 0.25 * mmPerM - niv[0] * mmPerM;
+        s += el('line', { x1: fx + fw + 1, y1: ny, x2: fx + fw + 3, y2: ny, stroke: ACENTO, 'stroke-width': 0.3 });
+        s += txt(fx + fw + 4, ny + 1, niv[1], 2.6, { fill: ACENTO });
+      });
+      // separador sutil entre filas
+      if (fila > 0 && col === 0) s += el('line', { x1: dz.x, y1: cy0 - gap / 2, x2: dz.x + dz.w, y2: cy0 - gap / 2, stroke: LINEA, 'stroke-width': 0.3 });
+      if (col > 0) s += el('line', { x1: cx0 - gap / 2, y1: cy0, x2: cx0 - gap / 2, y2: cy0 + cellH, stroke: LINEA, 'stroke-width': 0.3 });
     });
 
     // escala gráfica (una sola vez, franja inferior)
