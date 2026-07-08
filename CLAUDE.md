@@ -40,10 +40,12 @@ Core funcional de punta a punta y publicado. En esta ronda pasó por una auditor
 - Throttle de correo por destinatario y global (ventana 6 h) + respeta la cuota de MailApp (anti-bombardeo / anti-DoS del lead magnet).
 - Rate-limit de `list` por correo (anti-fuerza-bruta).
 - `_esc` escapa comillas; `_newId` usa `Utilities.getUuid()`.
+- **Hasheo de la clave (SHA-256 + sal por fila)**: se guarda en columnas `clave_hash` + `salt`; la columna `clave` (texto plano) queda **vacía** en cada guardado. Verificación con **fallback a texto plano** para filas viejas (nadie que regresa se queda fuera). Migración fila-a-fila automática al re-guardar, + función manual `migrateHashes()` (con `LockService`, idempotente) para hashear de golpe lo existente. `doGet` trimea `p.clave` para igualar el guardado. Validado con 28 pruebas de backend en Node (paridad SHA-256 GAS↔Node, hash/fallback/migración, no_autorizado, correo intacto).
 
 ## Pendiente (backend, para segunda ronda — NO shippeado por riesgo)
 
-- **Hasheo de la clave**: hoy se guarda/transmite en claro. Recomendado AGREGAR columnas `clave_hash`+`salt` (SHA-256 con `Utilities.computeDigest`), con fallback a texto plano para no dejar fuera a usuarios existentes. No se activó en esta ronda porque cambia la autenticación y no se puede probar sin el runtime de Apps Script; hacerlo mal bloquea a los leads que regresan. Implementar y probar con una cuenta de prueba antes de activar.
+- **Endurecer el hasheo**: hoy es SHA-256 con sal (sin estiramiento). Deuda futura: PBKDF2/bcrypt con iteraciones para resistir fuerza-bruta offline si se filtrara la hoja. La clave se sigue enviando por correo en claro (por diseño, para recuperación).
+- **Correr `migrateHashes()` en producción**: hashea de golpe las filas viejas aún en texto plano. Correr en horario de bajo tráfico (ya lleva `LockService`). Opcional: el guardado normal ya migra fila a fila.
 - Poda del Historial (crece sin tope) e índice `plan_id→fila` para evitar el escaneo lineal a escala.
 - Respaldo diario de la hoja + alerta al acercarse a la cuota de correo.
 
@@ -57,7 +59,7 @@ Frontend estático HTML/CSS/JS puro + SVG (sin framework, sin build) en GitHub P
 |---|---|
 | `index.html` | Editor (barra Cliente/Avanzado, lienzo, modales, zoom/pan, campos de mueble, PNG/Etiqueta/Rehacer); carga scripts y llama `CroKiss.boot(ed)` |
 | `crokiss-cloud.js` | Adaptador de nube: offline-first, sync con backoff, sendBeacon, identidad correo+clave, nudge, pantalla de éxito. Contiene `CONFIG.ENDPOINT` y `CONFIG.CONTACT_URL` |
-| `Code.gs` | Backend endurecido: doGet list/plan/ping, doPost save/sync, correo con throttle, antiinyección, anti-abuso. Contiene `CONFIG.SITE_BASE` |
+| `Code.gs` | Backend endurecido: doGet list/plan/ping, doPost save/sync, correo con throttle, antiinyección, anti-abuso, **hasheo de clave (SHA-256+sal, `_claveOk`/`_hashClave`/`_ensureHeader`/`migrateHashes`)**. Contiene `CONFIG.SITE_BASE` |
 | `plan-editor.js` | Motor: geometría, render SVG, interacción, snap, undo/redo, zoom/pinch/pan, muebles, etiquetas, PNG. Expone `getGeom()`/`loadGeom()` |
 | `plan-render.js` | (Proyecto Marbel, sin cambios) geometría de muestra |
 | `plan-furniture.js` | Catálogo `PlanFurniture.CATALOG` y `PlanFurniture.draw()` (ampliado) |
@@ -72,13 +74,13 @@ Harness jsdom: 19 pruebas de motor (saneo/clamp anti-cuelgue, XSS neutralizado, 
 - Sitio: https://alexpueblag.github.io/crokiss/
 - `/exec`: https://script.google.com/macros/s/AKfycbxFtuOvgTIkZehUqcJUA7rWpULGncFLDRZEEPAKLhLTr73dP7v1QdcE73g7yrGdcZyHsg/exec
 - Hoja: "CroKiss — Planos" (pestañas Planos e Historial)
-- Esquema Planos: `ts, plan_id, client_id, nombre, correo, clave, plan_name, version, marketing, source, geom_json`
+- Esquema Planos: `ts, plan_id, client_id, nombre, correo, clave, plan_name, version, marketing, source, geom_json, clave_hash, salt` (la columna `clave` queda vacía tras el hasheo; `clave_hash`+`salt` la reemplazan)
 - Esquema Historial: `ts, plan_id, plan_name, correo, version, geom_json`
 
 ## Despliegue
 
 - **Front:** subir archivos al repo → Pages ~1 min → recargar con Ctrl+Shift+R.
-- **Backend:** pegar `Code.gs` en Apps Script → Implementar → Gestionar implementaciones → editar (lápiz) → **Versión nueva**. NUNCA crear implementación nueva (cambiaría la URL `/exec`). Esta ronda SÍ requiere re-desplegar el backend para activar el endurecimiento de seguridad.
+- **Backend:** pegar `Code.gs` en Apps Script → Implementar → Gestionar implementaciones → editar (lápiz) → **Versión nueva**. NUNCA crear implementación nueva (cambiaría la URL `/exec`). El endurecimiento (incluido el hasheo de clave) YA está re-desplegado (Versión ≥4, misma URL `/exec`). El hasheo es compatible hacia atrás: al desplegar no se pierde ningún lead; las filas viejas migran al re-guardar o corriendo `migrateHashes()`.
 
 ## Decisiones importantes (no revertir sin razón)
 
