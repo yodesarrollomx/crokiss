@@ -1,41 +1,26 @@
-/***** CroKiss · Aurum Arquitectos — Backend (Google Apps Script) ************
+/***** CroKiss — Backend (Google Apps Script) ********************************
  * Base de datos en Google Sheets para el editor de planos CroKiss.
  *   doPost  -> guardar (mode:'save', manda correo) o sincronizar (mode:'sync')
- *   doGet   -> abrir por correo+clave (action:'open') o por id (action:'plan')
+ *   doGet   -> listar proyectos (action:'list') o abrir uno (action:'plan')
  *
- * El POST llega como text/plain para evitar el "preflight" de CORS
- * (el mismo truco que ya usas en Aurum Board).
+ * Modelo: correo + clave = tu "cuenta". Bajo ella puede haber VARIOS
+ * proyectos (cada uno con su plan_id). Guardar con plan_id actualiza ese
+ * proyecto; sin plan_id, si el nombre ya existe lo reanuda, si no, crea uno.
  *
- * Códigos de error que emite este backend (el front los mapea a mensajes):
- *   'no_existe', 'clave_incorrecta', 'muy_grande', 'clave_larga',
- *   'tope_alcanzado', 'spam'
- *
- * ====================== PASOS DE DESPLIEGUE (a mano) ======================
- * Este archivo NO se despliega solo. Para publicar cambios:
- *   1. Abre el proyecto de Apps Script vinculado a la hoja "CroKiss — Planos".
- *   2. ANTES de pegar: compara con el código desplegado (el Code.gs local
- *      puede ir detrás de producción, p. ej. action:'list' del selector);
- *      si producción tiene funciones que aquí no están, consérvalas.
- *   3. Pega este archivo completo sobre Code.gs y guarda (Ctrl+S).
- *   4. Implementar → Gestionar implementaciones → en la implementación
- *      EXISTENTE pulsa el lápiz (editar) → Versión: "Versión nueva" →
- *      Implementar.
- *   5. NUNCA crees una implementación nueva: cambiaría la URL /exec y
- *      rompería el front y todos los enlaces ?open=ID ya enviados por correo.
- *   6. Para el respaldo semanal: ver instrucciones sobre respaldoSemanal().
- * ==========================================================================
- *
- * >>> ANTES DE PUBLICAR: pega tu URL de GitHub Pages en CONFIG.SITE_BASE. <<<
+ * El POST llega como text/plain para evitar el "preflight" de CORS.
  ***************************************************************************/
 
 var CONFIG = {
   SHEET_PLANOS:     'Planos',      // estado actual: 1 fila por proyecto
-  SHEET_HISTORIAL:  'Historial',   // bitácora append-only (solo en 'save')
-  SITE_BASE:        'https://alexpueblag.github.io/crokiss/',  // URL pública del editor (con / al final)
+  SHEET_HISTORIAL:  'Historial',   // bitácora: solo en guardado explícito
+  SITE_BASE:        'https://alexpueblag.github.io/crokiss/',  // tu URL de GitHub Pages
   EDITOR_FILE:      'index.html',
   REMITENTE_NOMBRE: 'CroKiss · Aurum Arquitectos',
-  MAX_GEOM_BYTES:   45000,         // tope del plano (la celda de Sheets admite ~50k chars)
-  MAX_POR_CORREO:   60             // máx. proyectos por correo (anti-abuso)
+  MAX_GEOM_BYTES:   200000,        // tope del plano (anti-abuso)
+  MAX_POR_CORREO:   60,            // máx. proyectos por correo (anti-abuso)
+  MAX_EMAIL_CORREO: 3,             // máx. correos a un mismo destinatario / ventana 6 h (anti-bombardeo)
+  MAX_EMAIL_DIA:    80,            // tope global de correos / ventana 6 h (protege la cuota de MailApp)
+  MAX_LIST_CORREO:  40             // máx. consultas 'list' por correo / hora (anti-fuerza-bruta)
 };
 
 var HEADERS = ['ts','plan_id','client_id','nombre','correo','clave',
@@ -46,27 +31,32 @@ var HEADERS = ['ts','plan_id','client_id','nombre','correo','clave',
 function doGet(e) {
   try {
     var p = (e && e.parameter) || {};
-    var action = p.action || 'open';
+    var action = p.action || 'list';
 
     if (action === 'ping') return _json({ ok: true, pong: true });
 
-    if (action === 'plan') {                 // abrir por id (link del correo)
-      var byId = _findById(p.id);
-      if (!byId) return _json({ ok: false, error: 'no_existe' });
-      // OJO: NUNCA devolver la clave aquí (el enlace ?open=ID es público;
-      // el front pide la clave aparte para reactivar el guardado en nube).
-      return _json({ ok: true, geom: JSON.parse(byId.geom_json),
-        nombre: byId.nombre, correo: byId.correo,
-        plan_name: byId.plan_name, version: byId.version, plan_id: byId.plan_id });
+    if (action === 'plan') {                 // abrir un proyecto por id
+      var row = _findById(p.id);
+      if (!row) return _json({ ok: false, error: 'no_encontrado' });
+      if (p.correo || p.clave) {             // si mandan credenciales, verifícalas
+        if (String(row.correo).toLowerCase() !== String(p.correo || '').toLowerCase() ||
+            String(row.clave) !== String(p.clave || ''))
+          return _json({ ok: false, error: 'no_autorizado' });
+      }
+      // Seguridad: nunca devolvemos la clave; el correo solo si el que pregunta ya la sabe.
+      var authed = (p.correo || p.clave) &&
+        String(row.correo).toLowerCase() === String(p.correo || '').toLowerCase() &&
+        String(row.clave) === String(p.clave || '');
+      return _json({ ok: true, geom: JSON.parse(row.geom_json), plan_name: row.plan_name,
+        version: row.version, plan_id: row.plan_id, correo: authed ? row.correo : undefined });
     }
 
-    // abrir por correo+clave
-    var correo = String(p.correo || '').trim().toLowerCase();
-    var clave  = String(p.clave  || '').trim();
-    var b = _findByCredentials(correo, clave);
-    if (!b.obj) return _json({ ok: false, error: b.correoExiste ? 'clave_incorrecta' : 'no_existe' });
-    return _json({ ok: true, geom: JSON.parse(b.obj.geom_json),
-      plan_name: b.obj.plan_name, version: b.obj.version, plan_id: b.obj.plan_id });
+    // 'list' (default): proyectos que coinciden con correo + clave (con anti-fuerza-bruta)
+    var lc = String(p.correo || '').toLowerCase();
+    if (lc && !_rateOk('ls_' + lc, CONFIG.MAX_LIST_CORREO, 3600))
+      return _json({ ok: false, error: 'demasiados_intentos' });
+    var items = _listByCredentials(p.correo, p.clave);
+    return _json({ ok: true, count: items.length, items: items });
 
   } catch (err) {
     return _json({ ok: false, error: String(err) });
@@ -74,8 +64,9 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  var lock = LockService.getScriptLock();
   try {
-    /* ---- 1) Parseo y validaciones: FUERA del lock (no tocan la hoja) ---- */
+    lock.waitLock(20000);
     var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
 
     if (body.website) return _json({ ok: false, error: 'spam' });   // honeypot
@@ -83,77 +74,80 @@ function doPost(e) {
     var mode   = body.mode || 'save';
     var correo = String(body.correo || '').trim().toLowerCase();
     var clave  = String(body.clave  || '').trim();
-    if (!_validEmail(correo))        return _json({ ok: false, error: 'no_existe' });
-    if (!clave)                      return _json({ ok: false, error: 'clave_incorrecta' });
-    if (clave.length > 40)           return _json({ ok: false, error: 'clave_larga' });
+    if (!_validEmail(correo))         return _json({ ok: false, error: 'correo_invalido' });
+    if (!clave || clave.length > 40)  return _json({ ok: false, error: 'clave_invalida' });
 
     var geom = body.geom;
-    if (!geom || !geom.walls)        return _json({ ok: false, error: 'plano_invalido' });
+    if (!geom || !geom.walls)         return _json({ ok: false, error: 'plano_invalido' });
     var geomStr = JSON.stringify(geom);
-    if (geomStr.length > CONFIG.MAX_GEOM_BYTES) return _json({ ok: false, error: 'muy_grande' });
+    if (geomStr.length > CONFIG.MAX_GEOM_BYTES) return _json({ ok: false, error: 'plano_muy_grande' });
 
-    /* ---- 2) Sección crítica: SOLO lectura/escritura de la hoja ---- */
-    var lock = LockService.getScriptLock();
-    lock.waitLock(20000);
-    var planId, version, isNew, nombre, planName;
-    try {
-      var sh = _sheet(CONFIG.SHEET_PLANOS);
-      var b = _findByCredentials(correo, clave, sh);   // lee solo columnas correo/clave
-      var existing = b.obj;
-      isNew = !existing;
+    var sh = _sheet(CONFIG.SHEET_PLANOS);
+    var data = sh.getDataRange().getValues();
+    var col = _colIndex(data[0]);
+    var planName = String(body.plan_name || 'Mi proyecto').slice(0, 80);
 
-      // 'sync' nunca crea ni manda correo: si no existe, pide guardar.
-      if (mode === 'sync' && isNew) return _json({ ok: false, error: 'no_existe' });
+    // ---- localizar la fila destino ----
+    var rowIdx = -1, existing = null;
+    var wantId = String(body.plan_id || '');
+    if (wantId) {                                  // actualizar un proyecto concreto
+      for (var i = 1; i < data.length; i++)
+        if (String(data[i][col.plan_id]) === wantId) { rowIdx = i + 1; existing = _rowObj(data[i], col); break; }
+      if (existing && (String(existing.correo).toLowerCase() !== correo || String(existing.clave) !== clave))
+        return _json({ ok: false, error: 'no_autorizado' });   // seguridad: dueño correcto
+    } else {                                       // sin id: reanudar por nombre o crear
+      for (var j = 1; j < data.length; j++)
+        if (String(data[j][col.correo]).toLowerCase() === correo &&
+            String(data[j][col.clave]) === clave &&
+            String(data[j][col.plan_name]) === planName) { rowIdx = j + 1; existing = _rowObj(data[j], col); break; }
+    }
+    var isNew = !existing;
 
-      // tope por correo (anti-abuso); b.correoCount ya viene del mismo barrido
-      if (isNew && b.correoCount >= CONFIG.MAX_POR_CORREO)
-        return _json({ ok: false, error: 'tope_alcanzado' });
+    if (mode === 'sync' && isNew) return _json({ ok: false, error: 'no_existe' });  // sync no crea
 
-      var now = new Date();
-      planId   = existing ? existing.plan_id : _newId();
-      version  = existing ? (Number(existing.version) || 0) + 1 : 1;
-      planName = String(body.plan_name || (existing && existing.plan_name) || 'Mi proyecto').slice(0, 80);
-      nombre   = String(body.nombre    || (existing && existing.nombre)    || '').slice(0, 80);
-      var clientId  = String(body.client_id || (existing && existing.client_id) || '').slice(0, 60);
-      var marketing = body.marketing ? 'si' : ((existing && existing.marketing) || 'no');
-
-      var rowValues = _orderRow({
-        ts: now, plan_id: planId, client_id: clientId, nombre: nombre, correo: correo,
-        clave: clave, plan_name: planName, version: version, marketing: marketing,
-        source: 'crokiss-web', geom_json: geomStr
-      }, sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]);
-
-      if (b.rowIdx > 0) sh.getRange(b.rowIdx, 1, 1, rowValues.length).setValues([rowValues]);
-      else              sh.appendRow(rowValues);
-
-      // Historial SOLO en guardado explícito (decisión #5 de CLAUDE.md),
-      // nunca en los syncs con debounce: evita engordar el archivo.
-      if (mode === 'save') {
-        try {
-          var hist = _sheet(CONFIG.SHEET_HISTORIAL);
-          if (hist.getLastRow() === 0) hist.appendRow(['ts','plan_id','correo','version','geom_json']);
-          hist.appendRow([now, planId, correo, version, geomStr]);
-        } catch (_) {}
-      }
-    } finally {
-      try { lock.releaseLock(); } catch (_) {}
+    if (isNew) {                                   // tope por correo (anti-abuso)
+      var count = 0;
+      for (var k = 1; k < data.length; k++)
+        if (String(data[k][col.correo]).toLowerCase() === correo) count++;
+      if (count >= CONFIG.MAX_POR_CORREO) return _json({ ok: false, error: 'limite_por_correo' });
     }
 
-    /* ---- 3) Correo: FUERA del lock (puede tardar 1-2 s, no bloquea a nadie) ---- */
-    var emailed = false;                      // correo solo al guardar (1ra vez o si lo piden)
-    if (mode === 'save' && (isNew || body.sendEmail)) {
+    var now      = new Date();
+    var planId   = existing ? existing.plan_id : _newId();
+    var version  = existing ? (Number(existing.version) || 0) + 1 : 1;
+    var nombre   = String(body.nombre    || (existing && existing.nombre)    || '').slice(0, 80);
+    var clientId = String(body.client_id || (existing && existing.client_id) || '').slice(0, 60);
+    var marketing = body.marketing ? 'si' : ((existing && existing.marketing) || 'no');
+
+    var rowValues = _orderRow({
+      ts: now, plan_id: planId, client_id: _safeCell(clientId), nombre: _safeCell(nombre), correo: _safeCell(correo),
+      clave: _safeCell(clave), plan_name: _safeCell(planName), version: version, marketing: marketing,
+      source: 'crokiss-web', geom_json: geomStr
+    }, data[0]);
+
+    if (rowIdx > 0) sh.getRange(rowIdx, 1, 1, rowValues.length).setValues([rowValues]);
+    else            sh.appendRow(rowValues);
+
+    // Historial SOLO en guardado explícito (no en cada autoguardado)
+    if (mode === 'save') {
       try {
-        if (MailApp.getRemainingDailyQuota() > 0) {
-          _sendPlanEmail(correo, nombre, planName, clave, planId);
-          emailed = true;
-        }
-      } catch (_) { emailed = false; }        // sin cuota o fallo: el front avisa
+        var hist = _sheet(CONFIG.SHEET_HISTORIAL);
+        if (hist.getLastRow() === 0) hist.appendRow(['ts','plan_id','plan_name','correo','version','geom_json']);
+        hist.appendRow([now, planId, planName, correo, version, geomStr]);
+      } catch (_) {}
+    }
+
+    var emailed = false;
+    if (mode === 'save' && (isNew || body.sendEmail) && _canEmail(correo)) {
+      try { _sendPlanEmail(correo, nombre, planName, clave, planId); emailed = true; } catch (_) {}
     }
 
     return _json({ ok: true, plan_id: planId, version: version, isNew: isNew, emailed: emailed });
 
   } catch (err) {
     return _json({ ok: false, error: String(err) });
+  } finally {
+    try { lock.releaseLock(); } catch (_) {}
   }
 }
 
@@ -175,51 +169,47 @@ function _rowObj(row, col) {
 function _orderRow(obj, headerRow) {
   return headerRow.map(function (h) { var k = String(h).trim(); return obj[k] !== undefined ? obj[k] : ''; });
 }
-
-/* Busca por (correo, clave) leyendo SOLO las columnas correo y clave
-   (nunca el blob geom_json: con miles de filas la diferencia es de MB a KB).
-   Devuelve { rowIdx, obj, correoExiste, correoCount }:
-     rowIdx       fila de la hoja (1-based) o -1
-     obj          la fila completa como objeto (solo se lee ESA fila) o null
-     correoExiste true si el correo aparece (para 'clave_incorrecta' vs 'no_existe')
-     correoCount  proyectos de ese correo (para el tope anti-abuso) */
-function _findByCredentials(correo, clave, shOpt) {
+function _listByCredentials(correo, clave) {
   correo = String(correo || '').toLowerCase(); clave = String(clave || '');
-  var res = { rowIdx: -1, obj: null, correoExiste: false, correoCount: 0 };
-  if (!correo || !clave) return res;
-  var sh = shOpt || _sheet(CONFIG.SHEET_PLANOS);
-  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
-  if (lastRow < 2) return res;
-  var col = _colIndex(sh.getRange(1, 1, 1, lastCol).getValues()[0]);
-  var correos = sh.getRange(2, col.correo + 1, lastRow - 1, 1).getValues();
-  var claves  = sh.getRange(2, col.clave  + 1, lastRow - 1, 1).getValues();
-  for (var i = 0; i < correos.length; i++) {
-    if (String(correos[i][0]).toLowerCase() !== correo) continue;
-    res.correoExiste = true; res.correoCount++;
-    if (res.rowIdx < 0 && String(claves[i][0]) === clave) res.rowIdx = i + 2;
-  }
-  if (res.rowIdx > 0)
-    res.obj = _rowObj(sh.getRange(res.rowIdx, 1, 1, lastCol).getValues()[0], col);
-  return res;
+  var out = [];
+  if (!correo || !clave) return out;
+  var sh = _sheet(CONFIG.SHEET_PLANOS), data = sh.getDataRange().getValues(), col = _colIndex(data[0]);
+  for (var i = 1; i < data.length; i++)
+    if (String(data[i][col.correo]).toLowerCase() === correo && String(data[i][col.clave]) === clave)
+      out.push({ plan_id: String(data[i][col.plan_id]),
+                 plan_name: String(data[i][col.plan_name] || 'Mi proyecto'),
+                 version: Number(data[i][col.version]) || 1,
+                 ts: data[i][col.ts] });
+  out.sort(function (a, b) { return new Date(b.ts) - new Date(a.ts); });   // más reciente primero
+  return out;
 }
-
-/* Busca por plan_id leyendo SOLO la columna plan_id; trae la fila justa. */
 function _findById(id) {
   id = String(id || ''); if (!id) return null;
-  var sh = _sheet(CONFIG.SHEET_PLANOS);
-  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
-  if (lastRow < 2) return null;
-  var col = _colIndex(sh.getRange(1, 1, 1, lastCol).getValues()[0]);
-  var ids = sh.getRange(2, col.plan_id + 1, lastRow - 1, 1).getValues();
-  for (var i = 0; i < ids.length; i++)
-    if (String(ids[i][0]) === id)
-      return _rowObj(sh.getRange(i + 2, 1, 1, lastCol).getValues()[0], col);
+  var sh = _sheet(CONFIG.SHEET_PLANOS), data = sh.getDataRange().getValues(), col = _colIndex(data[0]);
+  for (var i = 1; i < data.length; i++)
+    if (String(data[i][col.plan_id]) === id) return _rowObj(data[i], col);
   return null;
 }
-
-function _newId() { return 'ck' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function _newId() { try { return 'ck' + Utilities.getUuid().replace(/-/g, '').slice(0, 18); } catch (e) { return 'ck' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); } }
 function _validEmail(s) { return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s || '')); }
-function _esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+// Anti-inyección de fórmulas en Sheets: si el texto empieza con = + - @, lo neutraliza (la ' no altera el valor leído).
+function _safeCell(v) { var s = String(v == null ? '' : v); return /^[=+\-@]/.test(s) ? ("'" + s) : s; }
+// Throttle de correo por destinatario y global (ventana 6 h) + guarda la cuota de MailApp.
+function _canEmail(correo) {
+  try {
+    if (MailApp.getRemainingDailyQuota() < 5) return false;
+    var c = CacheService.getScriptCache();
+    var day = Number(c.get('em_day') || '0'), per = Number(c.get('em_' + correo) || '0');
+    if (day >= CONFIG.MAX_EMAIL_DIA || per >= CONFIG.MAX_EMAIL_CORREO) return false;
+    c.put('em_day', String(day + 1), 21600); c.put('em_' + correo, String(per + 1), 21600);
+    return true;
+  } catch (e) { return true; }
+}
+// Contador con tope por clave/ventana (anti-fuerza-bruta de 'list').
+function _rateOk(key, max, ttl) {
+  try { var c = CacheService.getScriptCache(); var n = Number(c.get(key) || '0'); if (n >= max) return false; c.put(key, String(n + 1), ttl); return true; } catch (e) { return true; }
+}
 function _json(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
@@ -243,48 +233,11 @@ function _sendPlanEmail(correo, nombre, planName, clave, planId) {
         '<p style="font-size:13px;color:#6b6256">Tambi&eacute;n puedes entrar a CroKiss y usar &ldquo;Abrir con clave&rdquo; con tu correo y esta clave.</p>' +
         '<hr style="border:0;border-top:1px solid #e2e0db;margin:18px 0">' +
         '<p style="font-size:12px;color:#6b6256">&iquest;Quieres llevar tu idea al siguiente nivel? En Aurum Arquitectos y Yodesarrollo te ayudamos a hacerla realidad. Responde este correo y platicamos.</p>' +
-        '<p style="font-size:12px;color:#6b6256;font-weight:700;letter-spacing:1px">CroKiss &middot; Aurum Arquitectos</p>' +
       '</div>' +
     '</div>';
   MailApp.sendEmail({ to: correo, name: CONFIG.REMITENTE_NOMBRE,
     subject: 'Tu proyecto en CroKiss — tu clave para volver', htmlBody: html });
 }
 
-/* ====================== RESPALDO SEMANAL ======================
- * Copia el spreadsheet completo a la carpeta "CroKiss Respaldos" de Drive,
- * con la fecha en el nombre, y conserva solo las últimas 8 copias.
- *
- * CREAR EL TRIGGER (una sola vez, desde el editor de Apps Script):
- *   1. Menú izquierdo → Activadores (icono de reloj).
- *   2. "+ Añadir activador".
- *   3. Función: respaldoSemanal · Implementación: Principal (Head) ·
- *      Fuente del evento: Según tiempo · Tipo: Temporizador semanal ·
- *      Día y hora a gusto (p. ej. lunes, 4:00-5:00).
- *   4. Guardar y aceptar los permisos de Drive si los pide.
- */
-function respaldoSemanal() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var NOMBRE_CARPETA = 'CroKiss Respaldos';
-  var PREFIJO = 'CroKiss Respaldo ';
-  var MAX_COPIAS = 8;
-
-  var it = DriveApp.getFoldersByName(NOMBRE_CARPETA);
-  var carpeta = it.hasNext() ? it.next() : DriveApp.createFolder(NOMBRE_CARPETA);
-
-  var fecha = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  DriveApp.getFileById(ss.getId()).makeCopy(PREFIJO + fecha, carpeta);
-
-  // Conservar solo las últimas MAX_COPIAS (las más antiguas a la papelera).
-  var copias = [];
-  var fs = carpeta.getFiles();
-  while (fs.hasNext()) {
-    var f = fs.next();
-    if (f.getName().indexOf(PREFIJO) === 0) copias.push(f);
-  }
-  copias.sort(function (a, b) { return b.getDateCreated() - a.getDateCreated(); });
-  for (var i = MAX_COPIAS; i < copias.length; i++) copias[i].setTrashed(true);
-}
-
-/* Corre esto UNA vez desde el editor de Apps Script para crear las
-   pestañas y autorizar permisos (incluido el envío de correo). */
+/* Corre esto UNA vez para crear las pestañas y autorizar permisos. */
 function setup() { _sheet(CONFIG.SHEET_PLANOS); _sheet(CONFIG.SHEET_HISTORIAL); }

@@ -31,6 +31,10 @@
     wc:               { label: 'WC',               w: 0.40, h: 0.70, group: 'Baño' },
     lavabo:           { label: 'Lavabo',           w: 0.60, h: 0.50, group: 'Baño' },
     tina:             { label: 'Tina',             w: 1.70, h: 0.75, group: 'Baño' },
+    regadera:         { label: 'Regadera',         w: 0.90, h: 0.90, group: 'Baño' },
+    lavadora:         { label: 'Lavadora',         w: 0.65, h: 0.65, group: 'Cocina' },
+    escalera:         { label: 'Escalera',         w: 1.00, h: 2.60, group: 'Otros' },
+    auto:             { label: 'Auto (cochera)',   w: 2.40, h: 5.00, group: 'Otros' },
     mesa_comedor:     { label: 'Mesa comedor',     w: 1.40, h: 0.90, group: 'Otros' },
   };
 
@@ -143,6 +147,29 @@
         // 4 sillas (líneas en cada lado)
         s += el('line', { x1: -w * 0.28, y1: -hh - 5, x2: w * 0.28, y2: -hh - 5, stroke: st, 'stroke-width': sw * 0.8 });
         s += el('line', { x1: -w * 0.28, y1: hh + 5, x2: w * 0.28, y2: hh + 5, stroke: st, 'stroke-width': sw * 0.8 });
+        break;
+      case 'regadera': {
+        s += el('rect', { x: -hw, y: -hh, width: w, height: h, fill: 'none', stroke: st, 'stroke-width': sw });
+        s += el('line', { x1: -hw, y1: -hh, x2: hw, y2: hh, stroke: st, 'stroke-width': sw * 0.6, opacity: 0.5 });
+        s += el('line', { x1: hw, y1: -hh, x2: -hw, y2: hh, stroke: st, 'stroke-width': sw * 0.6, opacity: 0.5 });
+        s += el('circle', { cx: -hw + w * 0.16, cy: -hh + h * 0.16, r: Math.min(w, h) * 0.08, fill: 'none', stroke: st, 'stroke-width': sw * 0.8 });
+        break;
+      }
+      case 'lavadora':
+        s += rrect(w, h, 2, A);
+        s += el('circle', { cx: 0, cy: h * 0.04, r: Math.min(w, h) * 0.32, fill: 'none', stroke: st, 'stroke-width': sw * 0.85 });
+        s += el('line', { x1: -hw, y1: -hh + h * 0.24, x2: hw, y2: -hh + h * 0.24, stroke: st, 'stroke-width': sw * 0.7 });
+        break;
+      case 'escalera': {
+        s += el('rect', { x: -hw, y: -hh, width: w, height: h, fill: 'none', stroke: st, 'stroke-width': sw });
+        const n = 9;
+        for (let i = 1; i < n; i++) s += el('line', { x1: -hw, y1: -hh + (h * i) / n, x2: hw, y2: -hh + (h * i) / n, stroke: st, 'stroke-width': sw * 0.7 });
+        s += el('line', { x1: 0, y1: -hh, x2: 0, y2: hh, stroke: st, 'stroke-width': sw * 0.6, opacity: 0.5 });
+        break;
+      }
+      case 'auto':
+        s += rrect(w, h, Math.min(w, h) * 0.18, A);
+        s += rrect(w * 0.7, h * 0.34, Math.min(w, h) * 0.1, { fill: 'none', stroke: st, 'stroke-width': sw * 0.7, opacity: 0.7 });
         break;
       default:
         s += rrect(w, h, 2, A);
