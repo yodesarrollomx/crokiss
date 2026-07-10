@@ -8,13 +8,6 @@
  * proyecto; sin plan_id, si el nombre ya existe lo reanuda, si no, crea uno.
  *
  * El POST llega como text/plain para evitar el "preflight" de CORS.
- *
- * Seguridad de clave: se guarda HASHEADA (SHA-256 con sal) en las columnas
- * clave_hash + salt. La columna 'clave' (texto plano) queda vacía en cada
- * guardado nuevo. Para filas viejas todavía en texto plano, la verificación
- * cae automáticamente a comparar texto plano (fallback) — así ningún lead
- * que regresa se queda fuera. Corre migrateHashes() UNA vez para hashear
- * de golpe todo lo existente (opcional; el guardado normal ya migra fila a fila).
  ***************************************************************************/
 
 var CONFIG = {
@@ -31,8 +24,7 @@ var CONFIG = {
 };
 
 var HEADERS = ['ts','plan_id','client_id','nombre','correo','clave',
-               'plan_name','version','marketing','source','geom_json',
-               'clave_hash','salt'];
+               'plan_name','version','marketing','source','geom_json'];
 
 /* ============================ ENTRADAS ============================ */
 
@@ -40,20 +32,21 @@ function doGet(e) {
   try {
     var p = (e && e.parameter) || {};
     var action = p.action || 'list';
-    if (p.clave != null) p.clave = String(p.clave).trim();   // igualar el trim del guardado
 
     if (action === 'ping') return _json({ ok: true, pong: true });
 
     if (action === 'plan') {                 // abrir un proyecto por id
       var row = _findById(p.id);
       if (!row) return _json({ ok: false, error: 'no_encontrado' });
-      var creds = (p.correo || p.clave);
-      // authed = mismo correo + clave correcta (hash o, si es fila vieja, texto plano)
-      var authed = creds &&
-        String(row.correo).toLowerCase() === String(p.correo || '').toLowerCase() &&
-        _claveOk(row, p.clave);
-      if (creds && !authed) return _json({ ok: false, error: 'no_autorizado' });
+      if (p.correo || p.clave) {             // si mandan credenciales, verifícalas
+        if (String(row.correo).toLowerCase() !== String(p.correo || '').toLowerCase() ||
+            String(row.clave) !== String(p.clave || ''))
+          return _json({ ok: false, error: 'no_autorizado' });
+      }
       // Seguridad: nunca devolvemos la clave; el correo solo si el que pregunta ya la sabe.
+      var authed = (p.correo || p.clave) &&
+        String(row.correo).toLowerCase() === String(p.correo || '').toLowerCase() &&
+        String(row.clave) === String(p.clave || '');
       return _json({ ok: true, geom: JSON.parse(row.geom_json), plan_name: row.plan_name,
         version: row.version, plan_id: row.plan_id, correo: authed ? row.correo : undefined });
     }
@@ -90,9 +83,8 @@ function doPost(e) {
     if (geomStr.length > CONFIG.MAX_GEOM_BYTES) return _json({ ok: false, error: 'plano_muy_grande' });
 
     var sh = _sheet(CONFIG.SHEET_PLANOS);
-    var header = _ensureHeader(sh);                // garantiza columnas clave_hash + salt
     var data = sh.getDataRange().getValues();
-    var col = _colIndex(header);
+    var col = _colIndex(data[0]);
     var planName = String(body.plan_name || 'Mi proyecto').slice(0, 80);
 
     // ---- localizar la fila destino ----
@@ -101,12 +93,12 @@ function doPost(e) {
     if (wantId) {                                  // actualizar un proyecto concreto
       for (var i = 1; i < data.length; i++)
         if (String(data[i][col.plan_id]) === wantId) { rowIdx = i + 1; existing = _rowObj(data[i], col); break; }
-      if (existing && (String(existing.correo).toLowerCase() !== correo || !_claveOk(existing, clave)))
+      if (existing && (String(existing.correo).toLowerCase() !== correo || String(existing.clave) !== clave))
         return _json({ ok: false, error: 'no_autorizado' });   // seguridad: dueño correcto
     } else {                                       // sin id: reanudar por nombre o crear
       for (var j = 1; j < data.length; j++)
         if (String(data[j][col.correo]).toLowerCase() === correo &&
-            _claveOkArr(data[j], col, clave) &&
+            String(data[j][col.clave]) === clave &&
             String(data[j][col.plan_name]) === planName) { rowIdx = j + 1; existing = _rowObj(data[j], col); break; }
     }
     var isNew = !existing;
@@ -127,15 +119,11 @@ function doPost(e) {
     var clientId = String(body.client_id || (existing && existing.client_id) || '').slice(0, 60);
     var marketing = body.marketing ? 'si' : ((existing && existing.marketing) || 'no');
 
-    // Clave hasheada con sal; la columna de texto plano queda vacía (ya no se guarda en claro).
-    var hh = _hashClave(clave);
-
     var rowValues = _orderRow({
       ts: now, plan_id: planId, client_id: _safeCell(clientId), nombre: _safeCell(nombre), correo: _safeCell(correo),
-      clave: '', clave_hash: hh.hash, salt: hh.salt,
-      plan_name: _safeCell(planName), version: version, marketing: marketing,
+      clave: _safeCell(clave), plan_name: _safeCell(planName), version: version, marketing: marketing,
       source: 'crokiss-web', geom_json: geomStr
-    }, header);
+    }, data[0]);
 
     if (rowIdx > 0) sh.getRange(rowIdx, 1, 1, rowValues.length).setValues([rowValues]);
     else            sh.appendRow(rowValues);
@@ -172,21 +160,6 @@ function _sheet(name) {
   if (name === CONFIG.SHEET_PLANOS && sh.getLastRow() === 0) sh.appendRow(HEADERS);
   return sh;
 }
-// Garantiza que la hoja Planos tenga TODAS las columnas de HEADERS (agrega las que falten
-// al final, sin mover las existentes). Devuelve el encabezado completo actualizado.
-function _ensureHeader(sh) {
-  var lastCol = sh.getLastColumn();
-  var header = lastCol > 0 ? sh.getRange(1, 1, 1, lastCol).getValues()[0] : [];
-  if (!header.length) { sh.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]); return HEADERS.slice(); }
-  var have = {}; header.forEach(function (h) { have[String(h).trim()] = true; });
-  var add = [];
-  HEADERS.forEach(function (h) { if (!have[h]) add.push(h); });
-  if (add.length) {
-    sh.getRange(1, header.length + 1, 1, add.length).setValues([add]);
-    header = header.concat(add);
-  }
-  return header;
-}
 function _colIndex(headerRow) {
   var c = {}; headerRow.forEach(function (h, i) { c[String(h).trim()] = i; }); return c;
 }
@@ -196,45 +169,13 @@ function _rowObj(row, col) {
 function _orderRow(obj, headerRow) {
   return headerRow.map(function (h) { var k = String(h).trim(); return obj[k] !== undefined ? obj[k] : ''; });
 }
-
-/* ---- Verificación de clave (hash con sal + fallback a texto plano) ---- */
-// SHA-256 en hex. Corrige el byte con signo de computeDigest y rellena a 2 dígitos.
-function _sha256Hex(str) {
-  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(str), Utilities.Charset.UTF_8);
-  var hex = '';
-  for (var i = 0; i < bytes.length; i++) {
-    var b = (bytes[i] + 256) % 256;
-    hex += (b < 16 ? '0' : '') + b.toString(16);
-  }
-  return hex;
-}
-function _hashClave(plain) {
-  var salt = Utilities.getUuid();
-  return { salt: salt, hash: _sha256Hex(salt + ':' + String(plain)) };
-}
-// Compara desde los 3 campos crudos. Si hay hash+sal, verifica el hash;
-// si no (fila vieja), cae a comparar texto plano.
-function _claveOkFields(claveCell, hashCell, saltCell, input) {
-  var h = String(hashCell || ''), s = String(saltCell || '');
-  if (h && s) return _sha256Hex(s + ':' + String(input || '')) === h;
-  return String(claveCell || '') === String(input || '');
-}
-function _claveOk(rowObj, input) {
-  return _claveOkFields(rowObj.clave, rowObj.clave_hash, rowObj.salt, input);
-}
-function _claveOkArr(rowArr, col, input) {
-  var h = (col.clave_hash != null) ? rowArr[col.clave_hash] : '';
-  var s = (col.salt != null) ? rowArr[col.salt] : '';
-  return _claveOkFields(rowArr[col.clave], h, s, input);
-}
-
 function _listByCredentials(correo, clave) {
   correo = String(correo || '').toLowerCase(); clave = String(clave || '');
   var out = [];
   if (!correo || !clave) return out;
   var sh = _sheet(CONFIG.SHEET_PLANOS), data = sh.getDataRange().getValues(), col = _colIndex(data[0]);
   for (var i = 1; i < data.length; i++)
-    if (String(data[i][col.correo]).toLowerCase() === correo && _claveOkArr(data[i], col, clave))
+    if (String(data[i][col.correo]).toLowerCase() === correo && String(data[i][col.clave]) === clave)
       out.push({ plan_id: String(data[i][col.plan_id]),
                  plan_name: String(data[i][col.plan_name] || 'Mi proyecto'),
                  version: Number(data[i][col.version]) || 1,
@@ -299,33 +240,4 @@ function _sendPlanEmail(correo, nombre, planName, clave, planId) {
 }
 
 /* Corre esto UNA vez para crear las pestañas y autorizar permisos. */
-function setup() { _sheet(CONFIG.SHEET_PLANOS); _ensureHeader(_sheet(CONFIG.SHEET_PLANOS)); _sheet(CONFIG.SHEET_HISTORIAL); }
-
-/* Migración opcional: hashea de golpe TODAS las filas que sigan en texto plano.
- * Idempotente: solo toca filas con 'clave' no vacía y 'clave_hash' vacío.
- * Devuelve cuántas filas migró. Corre desde el editor de Apps Script cuando quieras. */
-function migrateHashes() {
-  var lock = LockService.getScriptLock();
-  try {
-    lock.waitLock(30000);                          // evita intercalado con doPost en vivo
-    var sh = _sheet(CONFIG.SHEET_PLANOS);
-    var header = _ensureHeader(sh);
-    var col = _colIndex(header);
-    var data = sh.getDataRange().getValues();
-    var n = 0;
-    for (var i = 1; i < data.length; i++) {
-      var plain = String(data[i][col.clave] || '');
-      var h = String(data[i][col.clave_hash] || '');
-      if (plain && !h) {
-        var hh = _hashClave(plain);
-        sh.getRange(i + 1, col.clave_hash + 1).setValue(hh.hash);
-        sh.getRange(i + 1, col.salt + 1).setValue(hh.salt);
-        sh.getRange(i + 1, col.clave + 1).setValue('');
-        n++;
-      }
-    }
-    return n;
-  } finally {
-    try { lock.releaseLock(); } catch (_) {}
-  }
-}
+function setup() { _sheet(CONFIG.SHEET_PLANOS); _sheet(CONFIG.SHEET_HISTORIAL); }
