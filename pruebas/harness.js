@@ -380,9 +380,13 @@ async function main() {
   ok(!('clave' in guardado), 'la identidad de localStorage no lleva la clave');
   ok(win.sessionStorage.getItem('crokiss_clave_v1') === 'clave-uno', 'la clave vive en sessionStorage');
 
-  // el modal de guardar no precarga la clave
+  // El modal nunca precarga la clave REAL del usuario. (Desde P4 sí propone una
+  // sugerencia nueva y aleatoria: eso es otra cosa — nada que revele la suya.)
   $('ckSaveBtn').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
-  ok($('ck_g_clave').value === '', 'abrir el modal de guardar NO precarga la clave');
+  ok($('ck_g_clave').value !== 'clave-uno',
+     'abrir el modal de guardar NO precarga la clave guardada', $('ck_g_clave').value);
+  ok($('ck_g_correo').value === '' || /@/.test($('ck_g_correo').value),
+     'el correo sí puede venir precargado (no es secreto)');
   $('ck_g_close').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
 
   const cloud2 = fs.readFileSync(path.join(RAIZ, 'crokiss-cloud.js'), 'utf8');
@@ -392,6 +396,67 @@ async function main() {
      'abrir y plan se piden por POST (la clave no viaja en la URL)');
   ok(/res\.error === 'plano_invalido'/.test(cloud2),
      'y cae a GET si el backend desplegado todavía es el anterior');
+
+  /* --- P4: embudo medido --- */
+  grupo('Embudo medido (P4)');
+  ok(typeof win.CroKiss.track === 'function', 'CroKiss.track() es pública (la usa el PNG)');
+
+  win.localStorage.removeItem('ck_events_v1');
+  win.CroKiss.track('prueba_uno', 'extra1');
+  win.CroKiss.track('prueba_dos');
+  let cola = JSON.parse(win.localStorage.getItem('ck_events_v1') || '[]');
+  ok(cola.length === 2, 'track() encola en localStorage', 'cola=' + cola.length);
+  ok(cola[0].evento === 'prueba_uno' && cola[0].extra === 'extra1', 'con evento y extra');
+  ok(!!cola[0].ts, 'y con sello de tiempo');
+
+  // "una sola vez por sesión"
+  win.CroKiss.track('solo_una', '1', true);
+  win.CroKiss.track('solo_una', '2', true);
+  cola = JSON.parse(win.localStorage.getItem('ck_events_v1') || '[]');
+  ok(cola.filter((e) => e.evento === 'solo_una').length === 1,
+     'un evento marcado "una vez" no se repite en la sesión');
+
+  // no sale a la red al instante (se agrupa) y no rompe si la red falla
+  const redAntes = huboRed;
+  ok(huboRed === redAntes, 'track() no dispara la red de inmediato: agrupa 30 s');
+
+  // tope de cola
+  for (let i = 0; i < 130; i++) win.CroKiss.track('relleno', i);
+  cola = JSON.parse(win.localStorage.getItem('ck_events_v1') || '[]');
+  ok(cola.length <= 100, 'la cola nunca pasa de 100 eventos', 'cola=' + cola.length);
+  win.localStorage.removeItem('ck_events_v1');
+
+  const cloud4 = fs.readFileSync(path.join(RAIZ, 'crokiss-cloud.js'), 'utf8');
+  ['terreno_creado', 'primer_elemento', 'nudge_visto', 'modal_guardar_abierto',
+   'guardado_ok', 'guardado_error', 'cta_contacto_click'].forEach((e) =>
+    ok(cloud4.indexOf("track('" + e) >= 0, 'está instrumentado ' + e));
+  ok(html.indexOf("CroKiss.track('compartir_png')") >= 0, 'está instrumentado compartir_png');
+  ok(/navigator\.sendBeacon\(CONFIG\.ENDPOINT, blob\)/.test(cloud4) && /function evBeacon/.test(cloud4),
+     'lo pendiente se manda con sendBeacon al cerrar la pestaña');
+
+  // CTA de WhatsApp
+  ok(/wa\.me\/52X{10}/.test(cloud4), 'el CTA apunta a wa.me con el número por rellenar');
+  ok(/ALEJANDRO/.test(cloud4), 'y está comentado con todas sus letras para que lo ponga');
+  ok(win.CroKiss.contactURL().indexOf('mailto:') === 0,
+     'mientras no haya número real, el CTA cae al correo (nunca un enlace roto)');
+
+  // clave sugerida, que además cumple el formato que exige el backend (P2)
+  $('ck_g_clave').value = '';
+  $('ckSaveBtn').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+  const sugerida = $('ck_g_clave').value;
+  ok(sugerida.length > 0, 'el modal de guardar propone una clave', sugerida);
+  ok(/^[A-Za-z0-9 ._-]{6,32}$/.test(sugerida),
+     'y cumple el formato que el backend exige para mandarla por correo', sugerida);
+  ok(/-\d{3}$/.test(sugerida), 'es del tipo "mi-casa-347"', sugerida);
+  // Reabrir el modal propone una clave NUEVA y jamás arrastra lo tecleado antes
+  // (en una computadora compartida eso sería filtrar la sesión anterior).
+  $('ck_g_clave').value = 'lo-que-escribi';
+  $('ck_g_close').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+  $('ckSaveBtn').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+  ok($('ck_g_clave').value !== 'lo-que-escribi', 'reabrir no arrastra lo tecleado antes');
+  ok(/^[A-Za-z0-9 ._-]{6,32}$/.test($('ck_g_clave').value), 'y vuelve a proponer una válida');
+  $('ck_g_close').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+  ok(/puedes cambiarla/.test(html), 'el modal avisa que la clave es editable');
 
   /* --- versión visible --- */
   grupo('Versión desplegada');

@@ -49,9 +49,15 @@
 var CONFIG = {
   SHEET_PLANOS:     'Planos',      // estado actual: 1 fila por proyecto
   SHEET_HISTORIAL:  'Historial',   // bitácora: solo en guardado explícito
+  SHEET_EVENTOS:    'Eventos',     // embudo: 1 fila por evento (la analítica es la hoja)
   SITE_BASE:        'https://alexpueblag.github.io/crokiss/',  // tu URL de GitHub Pages
   EDITOR_FILE:      'index.html',
   REMITENTE_NOMBRE: 'CroKiss · Aurum Arquitectos',
+  /* CTA del pie del correo. ⚠️ ALEJANDRO: mismo número que en
+     crokiss-cloud.js (CONFIG.WHATSAPP). Cambia XXXXXXXXXX por el WhatsApp de
+     Aurum, con lada 52 y sin espacios. Mientras tenga XXXXXXXXXX el correo
+     invita a responder, como hasta ahora. */
+  WHATSAPP:         'https://wa.me/52XXXXXXXXXX',
   ALERTA_CORREO:    'direccion@aurumarquitectos.com',   // a quién avisa healthPing()
 
   // Tope del plano. El límite duro de Sheets es ~50.000 caracteres por celda:
@@ -67,6 +73,9 @@ var CONFIG = {
   MAX_LIST_CORREO:  40,            // máx. consultas 'list' por correo / hora
   MAX_PLAN_ID:      30,            // máx. aperturas de un mismo plan_id / hora
   MAX_SAVE_CORREO:  30,            // máx. guardados por correo / hora
+
+  MAX_EVENT_CLIENTE: 120,          // eventos por client_id / hora
+  MAX_EVENT_LOTE:    20,           // eventos por POST
 
   HIST_VERSIONES:   20,            // versiones a conservar por plan_id
   HIST_DIAS:        90             // antigüedad máxima en Historial
@@ -176,6 +185,10 @@ function _abrirPlan(idRaw, correoRaw, claveRaw) {
                            String(correoRaw || '').toLowerCase(), String(claveRaw || ''));
   if ((correoRaw || claveRaw) && !authed) return { ok: false, error: 'no_autorizado' };
 
+  // Abrir sin credenciales = vino del enlace del correo. Es el único punto del
+  // embudo que el cliente no puede medir por sí mismo.
+  if (!correoRaw && !claveRaw) _eventoServidor('volvio_por_correo', id);
+
   // El blob se lee AQUÍ y solo aquí: una celda, no la hoja entera.
   var geomStr = _readGeom(sh, meta, rowIdx);
   var geom;
@@ -196,6 +209,14 @@ function doPost(e) {
     if (body.website) return _json({ ok: false, error: 'spam' });   // honeypot
 
     var mode   = body.mode || 'save';
+
+    /* ---- embudo: eventos anónimos ----
+       Va ANTES de validar correo/clave a propósito: un evento no tiene dueño.
+       Sin LockService y sin tocar la hoja de planos: medir jamás debe estorbar
+       a alguien que está guardando su croquis. */
+    if (mode === 'event') return _json(_registraEventos(body));
+
+
     var correo = String(body.correo || '').trim().toLowerCase();
     var clave  = String(body.clave  || '').trim();
     if (!_validEmail(correo) || correo.length > CONFIG.MAX_CORREO_CHARS)
@@ -337,6 +358,53 @@ function _guardarFila(mode, correo, clave, geomStr, body) {
   }
 
   return { planId: planId, version: version, isNew: isNew, nombre: nombre, planName: planName };
+}
+
+/* ======================== EMBUDO (pestaña Eventos) ========================
+   La analítica de CroKiss es la propia hoja: cero terceros, cero cookies.
+   Cada fila es un evento suelto y la lectura se hace con una tabla dinámica
+   (ver CLAUDE.md). Es "best-effort": si algo falla aquí, no pasa nada.        */
+function _registraEventos(body) {
+  try {
+    var cid = String(body.client_id || '').slice(0, 60);
+    if (!cid) return { ok: false, error: 'sin_cliente' };
+    if (!_rateOk(_ckey('ev_', cid), CONFIG.MAX_EVENT_CLIENTE, 3600))
+      return { ok: false, error: 'demasiados_intentos' };
+
+    var lote = Array.isArray(body.eventos) ? body.eventos
+             : (body.evento ? [{ evento: body.evento, extra: body.extra, ts: body.ts }] : []);
+    if (!lote.length) return { ok: true, n: 0 };
+    lote = lote.slice(0, CONFIG.MAX_EVENT_LOTE);
+
+    var sh = _hojaEventos();
+    var ahora = new Date();
+    var filas = lote.map(function (e) {
+      var ts = e && e.ts ? new Date(e.ts) : ahora;
+      if (isNaN(ts.getTime())) ts = ahora;
+      return [ts, _safeCell(cid), _safeCell(String((e && e.evento) || '').slice(0, 40)),
+              _safeCell(String((e && e.extra) == null ? '' : e.extra).slice(0, 120))];
+    });
+    // una sola escritura para todo el lote (barato incluso con 20 eventos)
+    sh.getRange(sh.getLastRow() + 1, 1, filas.length, 4).setValues(filas);
+    return { ok: true, n: filas.length };
+  } catch (err) {
+    console.error('_registraEventos: ' + err);
+    return { ok: false, error: 'error_interno' };
+  }
+}
+function _hojaEventos() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(CONFIG.SHEET_EVENTOS);
+  if (!sh) sh = ss.insertSheet(CONFIG.SHEET_EVENTOS);
+  if (sh.getLastRow() === 0) sh.appendRow(['ts', 'client_id', 'evento', 'extra']);
+  return sh;
+}
+/* Evento que solo el servidor puede ver: alguien abrió el enlace del correo. */
+function _eventoServidor(evento, extra) {
+  try {
+    _hojaEventos().appendRow([new Date(), 'servidor', String(evento).slice(0, 40),
+                              String(extra == null ? '' : extra).slice(0, 120)]);
+  } catch (err) { console.error('_eventoServidor: ' + err); }
 }
 
 /* ============================ HELPERS ============================ */
@@ -503,7 +571,11 @@ function _sendPlanEmail(correo, nombre, planName, clave, planId) {
         '</p>' +
         '<p style="font-size:13px;color:#6b6256">Tambi&eacute;n puedes entrar a CroKiss y usar &ldquo;Abrir con clave&rdquo; con tu correo y esta clave.</p>' +
         '<hr style="border:0;border-top:1px solid #e2e0db;margin:18px 0">' +
-        '<p style="font-size:12px;color:#6b6256">&iquest;Quieres llevar tu idea al siguiente nivel? En Aurum Arquitectos y Yodesarrollo te ayudamos a hacerla realidad. Responde este correo y platicamos.</p>' +
+        (/X{5,}/.test(CONFIG.WHATSAPP)
+          ? '<p style="font-size:12px;color:#6b6256">&iquest;Quieres llevar tu idea al siguiente nivel? En Aurum Arquitectos y Yodesarrollo te ayudamos a hacerla realidad. Responde este correo y platicamos.</p>'
+          : '<p style="font-size:12px;color:#6b6256">&iquest;Quieres llevar tu idea al siguiente nivel? Escr&iacute;benos por ' +
+            '<a href="' + CONFIG.WHATSAPP + '" style="color:#c75b39;font-weight:700">WhatsApp</a>' +
+            ' y un arquitecto de Aurum revisa tu croquis contigo.</p>') +
       '</div>' +
     '</div>';
   var asunto = 'Tu proyecto en CroKiss — tu clave para volver';
@@ -604,4 +676,4 @@ function healthPing() {
 }
 
 /* Corre esto UNA vez para crear las pestañas y autorizar permisos. */
-function setup() { _sheet(CONFIG.SHEET_PLANOS); _sheet(CONFIG.SHEET_HISTORIAL); }
+function setup() { _sheet(CONFIG.SHEET_PLANOS); _sheet(CONFIG.SHEET_HISTORIAL); _hojaEventos(); }

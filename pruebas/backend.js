@@ -41,17 +41,18 @@ const H_NUEVO = ['ts','plan_id','client_id','nombre','correo','clave',
 /* Hoja falsa que CUENTA qué se lee: así se demuestra que ninguna ruta
    arrastra la columna geom_json para buscar. */
 function hojaFalsa(nombre, filas, headers) {
-  const H = headers || H_NUEVO;
-  const celdas = [H.slice()].concat(filas.map((f) => f.slice()));
+  // headers === null crea una hoja REALMENTE vacía (como insertSheet en Sheets)
+  const H = headers === null ? null : (headers || H_NUEVO);
+  const celdas = (H ? [H.slice()] : []).concat(filas.map((f) => f.slice()));
   return {
     nombre,
     celdas,
     lecturas: [],                       // [{fila, col, nFilas, nCols}]
     escrituras: [],
-    headers() { return this.celdas[0]; },
-    colDe(nombreCol) { return this.celdas[0].indexOf(nombreCol) + 1; },   // 1-based
+    headers() { return this.celdas[0] || []; },
+    colDe(nombreCol) { return (this.celdas[0] || []).indexOf(nombreCol) + 1; },   // 1-based
     getLastRow() { return this.celdas.length; },
-    getLastColumn() { return this.celdas[0].length; },
+    getLastColumn() { return this.celdas.length ? this.celdas[0].length : 0; },
     appendRow(v) { this.celdas.push(v.slice()); this.escrituras.push({ tipo: 'append', v }); },
     deleteRow(n) { this.celdas.splice(n - 1, 1); this.escrituras.push({ tipo: 'delete', n }); },
     insertColumnBefore(n) {
@@ -77,7 +78,11 @@ function hojaFalsa(nombre, filas, headers) {
           sh.celdas[fila - 1][col - 1] = v;
           sh.escrituras.push({ tipo: 'setValue', fila, col, v });
         },
-        setValues(v) { sh.celdas[fila - 1] = v[0].slice(); sh.escrituras.push({ tipo: 'set', fila, v: v[0] }); },
+        setValues(v) {
+          // la API real escribe TODO el rango, no solo la primera fila
+          v.forEach((f, i) => { sh.celdas[fila - 1 + i] = f.slice(); });
+          sh.escrituras.push({ tipo: 'set', fila, filas: v.length });
+        },
         // TextFinder acotado a ESTE rango (lo que hace _rowByPlanId)
         createTextFinder(texto) {
           let entero = false;
@@ -122,7 +127,7 @@ function entorno(opciones) {
     SpreadsheetApp: {
       getActiveSpreadsheet: () => ({
         getSheetByName: (n) => hojas[n] || null,
-        insertSheet: (n) => (hojas[n] = hojaFalsa(n, []))
+        insertSheet: (n) => (hojas[n] = hojaFalsa(n, [], null))
       })
     },
     CacheService: {
@@ -554,6 +559,62 @@ grupo('Honeypot y validaciones básicas');
   ok(post(sandbox, { correo: 'no-es-correo', clave: 'clave-uno' }).error === 'correo_invalido', 'correo inválido se rechaza');
   ok(post(sandbox, { correo: 'a@x.com', clave: 'clave-uno', geom: { nada: 1 } }).error === 'plano_invalido', 'geom sin muros se rechaza');
   ok(resp(sandbox.doGet({ parameter: { action: 'ping' } })).pong === true, 'ping responde');
+}
+
+grupo('Embudo: pestaña Eventos (P4)');
+{
+  const planos = hojaFalsa('Planos', [filaMigrada('ck1', 'ana@x.com', 'clave-uno')]);
+  const { sandbox, hojas } = entorno({ hojas: { Planos: planos } });
+
+  const r = post(sandbox, { mode: 'event', client_id: 'c123', eventos: [
+    { evento: 'terreno_creado', extra: '10x20' }, { evento: 'primer_elemento', extra: '5' } ] });
+  ok(r.ok && r.n === 2, 'un lote de eventos se registra completo');
+  const ev = hojas['Eventos'];
+  ok(!!ev, 'la pestaña Eventos se crea sola');
+  ok(JSON.stringify(ev.celdas[0]) === JSON.stringify(['ts','client_id','evento','extra']),
+     'con su encabezado');
+  ok(ev.celdas.length === 3, 'quedaron las 2 filas del lote');
+  ok(ev.celdas[1][2] === 'terreno_creado' && ev.celdas[1][3] === '10x20', 'con evento y extra');
+
+  // no debe tocar la hoja de planos ni pedir el lock
+  const lecturasPlanos = planos.lecturas.length;
+  post(sandbox, { mode: 'event', client_id: 'c123', evento: 'nudge_visto' });
+  ok(planos.lecturas.length === lecturasPlanos, 'registrar un evento NO lee la hoja de planos');
+
+  // los eventos no necesitan correo ni clave
+  ok(post(sandbox, { mode: 'event', client_id: 'c9', evento: 'x' }).ok === true,
+     'un evento no exige credenciales (es anónimo)');
+  ok(post(sandbox, { mode: 'event', evento: 'x' }).error === 'sin_cliente',
+     'pero sí exige client_id');
+
+  // tope de lote
+  const muchos = Array.from({ length: 50 }, (_, i) => ({ evento: 'e' + i }));
+  const rl = post(sandbox, { mode: 'event', client_id: 'c777', eventos: muchos });
+  ok(rl.n === sandbox.CONFIG.MAX_EVENT_LOTE, 'un lote se recorta a 20 eventos', 'n=' + rl.n);
+}
+{
+  const { sandbox } = entorno({ hojas: { Planos: hojaFalsa('Planos', []) } });
+  for (let i = 0; i < sandbox.CONFIG.MAX_EVENT_CLIENTE; i++)
+    post(sandbox, { mode: 'event', client_id: 'spam', evento: 'e' });
+  ok(post(sandbox, { mode: 'event', client_id: 'spam', evento: 'e' }).error === 'demasiados_intentos',
+     'rate-limit por client_id');
+}
+{
+  const { sandbox, cacheRota } = entorno({ hojas: { Planos: hojaFalsa('Planos', []) }, cacheRota: true });
+  ok(post(sandbox, { mode: 'event', client_id: 'c1', evento: 'e' }).error === 'demasiados_intentos',
+     'fail-closed también en eventos');
+}
+{
+  // volvio_por_correo: el único evento que solo el servidor puede ver
+  const planos = hojaFalsa('Planos', [filaMigrada('ck1', 'ana@x.com', 'clave-uno')]);
+  const { sandbox, hojas } = entorno({ hojas: { Planos: planos } });
+  sandbox.doGet({ parameter: { action: 'plan', id: 'ck1' } });          // sin credenciales
+  const ev = hojas['Eventos'];
+  ok(ev && ev.celdas.some((f) => f[2] === 'volvio_por_correo'),
+     'abrir el enlace del correo deja rastro en Eventos');
+  const antes = ev.celdas.length;
+  sandbox.doGet({ parameter: { action: 'plan', id: 'ck1', correo: 'ana@x.com', clave: 'clave-uno' } });
+  ok(ev.celdas.length === antes, 'abrir CON credenciales no cuenta como "volvió por correo"');
 }
 
 grupo('sync no crea proyectos');

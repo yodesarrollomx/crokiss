@@ -111,6 +111,23 @@ Solo front: **no requiere re-desplegar nada del backend.**
 - **Export limpio:** `exportPNG` y la impresión (`beforeprint`/`afterprint`) deseleccionan antes de clonar y restauran después. La selección terracota ya no sale en lo que el usuario manda por WhatsApp.
 - **Barra móvil:** en ≤640 px los grupos y el `.mas-wrap` pasan a `display:contents` para que los botones empaqueten de verdad (el `.spacer` con `flex:1` era el que forzaba saltos de fila), etiquetas largas ocultas, `touch-action:manipulation`, y menú propio **⋯ Más** con zoom/Avanzado/PNG/Rehacer/Fachadas/Abrir/Nuevo/Respaldo/Importar/Copiar/Imprimir. Medido en 390 px: **de 246 px y 6 filas a 97 px y 2 filas** (12% de la pantalla). La paleta de muebles entra desde abajo como hoja (45 vh) en vez de tapar el costado. En escritorio todo sigue en línea, en las mismas 3 filas de siempre.
 
+### P4 (2026-07-25) — embudo medido + fugas de conversión
+
+⚠️ **Requiere re-desplegar `Code.gs`** para que la pestaña Eventos se llene.
+
+**La analítica es la propia hoja.** Cero Google Analytics, cero cookies de terceros (decisión explícita).
+
+- `mode:'event'` en `doPost` → pestaña **Eventos** (`ts, client_id, evento, extra`, se crea sola). **Sin `LockService` y sin leer la hoja de planos**: medir jamás debe estorbarle a alguien que está guardando. Acepta lotes de hasta 20. La ruta va **antes** de validar correo/clave, porque un evento es anónimo. Rate-limit 120/h por `client_id`, fail-closed.
+- `track(evento, extra, unaVez)` en el cliente: encola en `localStorage` (`ck_events_v1`, tope 100), sube por lotes cada 30 s y manda lo pendiente con `sendBeacon` al cerrar. **Best-effort**: nunca bloquea la UI, no reintenta con backoff, y si falla se queda en cola. Ante cualquier conflicto entre medir y guardar el plano, **gana el plano**.
+- Instrumentado: `terreno_creado`, `primer_elemento` (una vez por sesión), `nudge_visto`, `modal_guardar_abierto`, `guardado_ok`, `guardado_error` (extra = motivo), `cta_contacto_click`, `compartir_png`. Y `volvio_por_correo`, que solo el servidor puede ver (se registra en `action=plan` cuando llega sin credenciales).
+
+**Fugas de conversión cerradas:**
+1. **CTA a WhatsApp** (`CONFIG.WHATSAPP` en `crokiss-cloud.js` y en `Code.gs`). ⚠️ **Falta que Alejandro ponga el número**: hoy dice `52XXXXXXXXXX`. Mientras tenga las X, `contactURL()` cae solo al correo de siempre — nunca queda un enlace roto.
+2. **Clave autosugerida** tipo `mi-casa-347`, editable, con la nota "Te sugerimos una — puedes cambiarla". Cumple el formato que P2 exige para que la clave pueda salir en el correo. Reabrir el modal propone una nueva y **nunca** arrastra lo tecleado antes.
+3. **Retorno en un paso**: al abrir con `?open=ID`, si ya conocíamos el correo en ese navegador se conserva para precargarlo, y el aviso ahora invita explícitamente: *"Escribe tu clave para seguir guardando en la nube"*.
+
+**Cómo leer el embudo** (pestaña Eventos → Insertar → Tabla dinámica): filas = `evento`, valores = COUNTA de `client_id` (**resumir por → Recuento único**). El orden natural del embudo es `terreno_creado` → `primer_elemento` → `nudge_visto` → `modal_guardar_abierto` → `guardado_ok`. La caída más grande entre dos pasos consecutivos es el cuello. `guardado_error` agrupado por `extra` dice **por qué** se cae la gente.
+
 ## Pendiente (backend, para segunda ronda — NO shippeado por riesgo)
 
 - **Hasheo de la clave**: hoy se guarda/transmite en claro. ⚠️ **Ya se implementó una vez** (columnas `clave_hash`+`salt`, SHA-256 con `Utilities.computeDigest`, fallback y migración) en el commit **`ec6d029`**, y `975b699` lo revirtió por accidente al subir un `Code.gs` viejo. **No lo reescribas desde cero:** parte de `git show ec6d029:Code.gs` y fusiónalo sobre el `Code.gs` actual. Sigue pendiente probarlo con una cuenta de prueba antes de activar: hacerlo mal bloquea a los leads que regresan.

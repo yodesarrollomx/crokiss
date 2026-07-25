@@ -19,6 +19,13 @@
     // lado y el cliente se queda reintentando para siempre (lead perdido en
     // silencio). Mejor detenerlo aquí y decirlo con todas sus letras.
     MAX_GEOM_BYTES: 45000,
+    /* CTA de la pantalla de éxito y del pie del correo.
+       ⚠️ ALEJANDRO: cambia los XXXXXXXXXX por el número de WhatsApp de Aurum
+       con lada de país y SIN espacios ni signos. México = 52 + 10 dígitos.
+       Ejemplo real: 'https://wa.me/526621234567?text=...'
+       Mientras tenga XXXXXXXXXX el botón cae solo al correo (ver contactURL). */
+    WHATSAPP: 'https://wa.me/52XXXXXXXXXX?text=' +
+      encodeURIComponent('Hola Aurum, hice mi croquis en CroKiss y quiero que lo vean.'),
     CONTACT_URL: 'mailto:direccion@aurumarquitectos.com?subject=Quiero%20que%20Aurum%20revise%20mi%20croquis%20CroKiss'
   };
 
@@ -70,6 +77,77 @@
   function tooBig(s) {
     var n = (s == null ? geomStr() : s).length;
     return n > CONFIG.MAX_GEOM_BYTES;
+  }
+
+  /* ================= embudo (P4) =================
+     La analítica de CroKiss es su propia hoja: sin Google Analytics, sin
+     cookies de terceros. track() encola en localStorage y sube por lotes.
+     Regla de oro: los eventos son BEST-EFFORT. Ante cualquier conflicto entre
+     medir y guardar el plano, gana el plano — por eso nunca bloquea la UI, no
+     reintenta con backoff y si falla se queda en cola para el próximo lote. */
+  var EV_KEY = 'ck_events_v1';
+  var EV_MAX = 100;                      // tope de cola: medir no debe llenar el disco
+  var evTimer = null;
+  var evVistos = {};                     // eventos de "una sola vez por sesión"
+
+  function evLee() { try { return JSON.parse(localStorage.getItem(EV_KEY) || '[]'); } catch (e) { return []; } }
+  function evGuarda(a) { try { localStorage.setItem(EV_KEY, JSON.stringify(a.slice(-EV_MAX))); } catch (e) {} }
+
+  function track(evento, extra, unaVez) {
+    try {
+      if (unaVez) { if (evVistos[evento]) return; evVistos[evento] = true; }
+      var cola = evLee();
+      cola.push({ evento: String(evento || '').slice(0, 40),
+                  extra: extra == null ? '' : String(extra).slice(0, 120),
+                  ts: new Date().toISOString() });
+      evGuarda(cola);
+      if (!evTimer) evTimer = setTimeout(evEnvia, 30000);      // se agrupa 30 s
+    } catch (e) {}
+  }
+
+  function evEnvia() {
+    evTimer = null;
+    var cola = evLee();
+    if (!cola.length) return;
+    var lote = cola.slice(0, 20);
+    post({ mode: 'event', client_id: clientId(), eventos: lote })
+      .then(function (res) {
+        if (res && res.ok) {
+          evGuarda(evLee().slice(lote.length));                // solo se borra lo confirmado
+          if (evLee().length && !evTimer) evTimer = setTimeout(evEnvia, 30000);
+        }
+        // si no salió, se queda en cola: se reintenta con el siguiente evento
+      })
+      .catch(function () {});
+  }
+
+  // Al cerrar la pestaña se manda lo pendiente con sendBeacon (no bloquea).
+  function evBeacon() {
+    try {
+      var cola = evLee();
+      if (!cola.length || !navigator.sendBeacon) return;
+      var blob = new Blob([JSON.stringify({ mode: 'event', client_id: clientId(), eventos: cola.slice(0, 20) })],
+                          { type: 'text/plain;charset=utf-8' });
+      if (navigator.sendBeacon(CONFIG.ENDPOINT, blob)) evGuarda(evLee().slice(20));
+    } catch (e) {}
+  }
+
+  /* Clave sugerida: un campo vacío obliga a inventar algo y ahí se pierde gente.
+     Se propone una amable y editable. Cumple el formato de P2 (6-32 caracteres,
+     solo letras, números, espacio, punto, guion y guion bajo). */
+  var PALABRAS = ['mi-casa', 'mi-plano', 'mi-terreno', 'mi-proyecto', 'mi-croquis', 'mi-hogar'];
+  function claveSugerida() {
+    var w = PALABRAS[Math.floor(Math.random() * PALABRAS.length)];
+    return w + '-' + (100 + Math.floor(Math.random() * 900));
+  }
+  function sugiereClave() {
+    var el = $('ck_g_clave');
+    if (el && !el.value) el.value = claveSugerida();
+  }
+
+  /* WhatsApp si ya hay número; si no, el correo de siempre. Nunca un enlace roto. */
+  function contactURL() {
+    return /X{5,}/.test(CONFIG.WHATSAPP) ? CONFIG.CONTACT_URL : CONFIG.WHATSAPP;
   }
 
   function relTime(ts) {
@@ -204,7 +282,12 @@
 
   function poll() {
     var s = geomStr();
-    if (s && s !== lastSeen) { lastSeen = s; scheduleSync(); }
+    if (s && s !== lastSeen) {
+      lastSeen = s;
+      // 4 muros = el terreno recién sembrado; a partir del 5º ya dibujó algo suyo
+      if (elementCount() > 4) track('primer_elemento', elementCount(), true);
+      scheduleSync();
+    }
     maybeNudge();
   }
   function beacon() {
@@ -239,6 +322,7 @@
     if (ed.loadGeom(g)) {
       lastSeen = geomStr(); lastPushed = '';
       hide($('ck_modal_terreno'));
+      track('terreno_creado', g.lot.w + 'x' + g.lot.d);
       setStatus('Borrador local — guarda con tu clave', 'warn');
       toast('Terreno de ' + g.lot.w + ' × ' + g.lot.d + ' m. Dibuja tus muros dentro.');
     }
@@ -268,12 +352,15 @@
           hide($('ck_modal_guardar'));
           setStatus('Guardado en la nube ✓', 'ok');
           if ($('ck_nudge')) $('ck_nudge').remove();
+          track('guardado_ok', res.isNew ? 'nuevo' : 'actualizado');
           showSuccess(correo, clave, !!res.emailed);
         } else {
+          track('guardado_error', (res && res.error) || 'desconocido');
           toast(msgError(res && res.error)); setStatus('Sin guardar', 'warn');
         }
       })
       .catch(function () {
+        track('guardado_error', 'sin_conexion');
         toast('Sin conexión. Tu plano sigue guardado en este navegador.');
         setStatus('Sin conexión — guardado local', 'warn');
       });
@@ -335,11 +422,14 @@
           } else {
             // vino del enlace del correo (?open=ID) SIN clave: NO fabricar identidad con credenciales vacías.
             // Se abre como borrador; al guardar, el usuario reingresa su clave y se re-vincula.
+            // Retorno en UN paso: si ya conocíamos su correo en este navegador,
+            // se conserva para precargarlo y que solo tenga que teclear la clave.
+            var correoPrevio = (ident && ident.correo) || (lastCreds && lastCreds.correo) || '';
             ident = null; saveIdent();
             lastSeen = geomStr(); lastPushed = '';
-            if (res.plan_name) lastCreds = { correo: (lastCreds && lastCreds.correo) || '', clave: '' };
-            setStatus('Abierto desde tu correo — guarda con tu clave para sincronizar', 'warn');
-            toast('Abrimos "' + (res.plan_name || 'tu proyecto') + '". Guarda con tu clave para seguir sincronizando.');
+            lastCreds = correoPrevio ? { correo: correoPrevio, clave: '' } : null;
+            setStatus('Escribe tu clave para seguir guardando en la nube', 'warn');
+            toast('Abrimos "' + (res.plan_name || 'tu proyecto') + '". Escribe tu clave para seguir guardando en la nube.');
           }
         } else if (res && res.error === 'no_autorizado') {
           toast('Ese proyecto no coincide con tu clave.');
@@ -372,7 +462,7 @@
     if (nudgeShown || ident) return;                       // ya reclamado o ya mostrado
     var enoughEls = elementCount() >= 8;                   // dibujó algo real (>4 muros base)
     var enoughTime = (Date.now() - editStart) > 180000;    // 3 min
-    if (enoughEls || enoughTime) { nudgeShown = true; ensureNudge(); }
+    if (enoughEls || enoughTime) { nudgeShown = true; ensureNudge(); track('nudge_visto', enoughEls ? 'elementos' : 'tiempo'); }
   }
 
   /* ---------------- pantalla de éxito (remate comercial) ---------------- */
@@ -396,10 +486,11 @@
           '<span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#9a8f81">Tu clave</span>' +
           '<div style="font-size:18px;font-weight:600;color:#16181d">' + esc(clave) + '</div>' +
         '</div>' +
-        '<a href="' + esc(CONFIG.CONTACT_URL) + '" style="display:block;text-align:center;background:#c75b39;color:#fff;text-decoration:none;border-radius:10px;padding:12px;font-weight:600;font-size:15px;margin-bottom:8px">¿Quieres que Aurum convierta tu croquis en un proyecto real? →</a>' +
+        '<a href="' + esc(contactURL()) + '" id="ck_cta" target="_blank" rel="noopener" style="display:block;text-align:center;background:#c75b39;color:#fff;text-decoration:none;border-radius:10px;padding:12px;font-weight:600;font-size:15px;margin-bottom:8px">¿Quieres que Aurum convierta tu croquis en un proyecto real? →</a>' +
         '<button id="ck_succ_close" style="width:100%;background:none;border:1px solid #d8d5cd;border-radius:10px;padding:11px;color:#6b6256;font:inherit;cursor:pointer">Seguir dibujando</button>' +
       '</div>';
     $('ck_succ_close').addEventListener('click', function () { ov.remove(); });
+    if ($('ck_cta')) $('ck_cta').addEventListener('click', function () { track('cta_contacto_click'); });
   }
 
   /* ---------------- arranque ---------------- */
@@ -413,6 +504,8 @@
       if (c) $('ck_g_correo').value = c.correo || '';
       $('ck_g_clave').value = '';
       $('ck_g_plan').value = (ident && ident.planName) || '';
+      sugiereClave();
+      track('modal_guardar_abierto');
       show($('ck_modal_guardar'));
     });
     if ($('ckLogoutBtn')) $('ckLogoutBtn').addEventListener('click', cerrarSesion);
@@ -481,9 +574,9 @@
     }
 
     setInterval(poll, CONFIG.POLL_MS);
-    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') beacon(); });
-    window.addEventListener('pagehide', beacon);
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') { beacon(); evBeacon(); } });
+    window.addEventListener('pagehide', function () { beacon(); evBeacon(); });
   }
 
-  window.CroKiss = { boot: boot, startTerrain: startTerrain };
+  window.CroKiss = { boot: boot, startTerrain: startTerrain, track: track, contactURL: contactURL };
 })();

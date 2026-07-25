@@ -321,6 +321,7 @@
     <div class="ck-field"><label>Correo</label><input type="email" id="ck_g_correo" placeholder="tucorreo@ejemplo.com" autocomplete="email"></div>
     <div class="ck-field"><label>Elige una clave para volver</label>
       <span class="ck-pass"><input type="password" id="ck_g_clave" placeholder="ej. mi-casa-2026" autocomplete="new-password"><button type="button" class="ck-eye" data-pass="ck_g_clave" aria-label="Mostrar u ocultar la clave">👁</button></span>
+      <span style="font-size:11px;color:var(--muted);margin-top:3px">Te sugerimos una — puedes cambiarla.</span>
     </div>
     <input type="text" id="ck_g_web" class="ck-hp" tabindex="-1" autocomplete="off" aria-hidden="true">
     <label class="ck-check"><input type="checkbox" id="ck_g_mkt"><span>Quiero que un arquitecto de Aurum me contacte con ideas para mi proyecto.</span></label>
@@ -430,6 +431,7 @@
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1500);
       toast('Imagen descargada — compártela por WhatsApp');
+      if (window.CroKiss && CroKiss.track) CroKiss.track('compartir_png');
     });
   });
   // toggle avanzado (opciones de obra)
