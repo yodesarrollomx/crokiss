@@ -14,6 +14,11 @@
     ENDPOINT: 'https://script.google.com/macros/s/AKfycbxFtuOvgTIkZehUqcJUA7rWpULGncFLDRZEEPAKLhLTr73dP7v1QdcE73g7yrGdcZyHsg/exec',  // tu Apps Script /exec
     SYNC_DEBOUNCE_MS: 2200,
     POLL_MS: 1500,
+    // Mismo tope que el backend. Sheets no admite más de ~50.000 caracteres por
+    // celda: si dejamos salir un plano más grande, el guardado revienta del otro
+    // lado y el cliente se queda reintentando para siempre (lead perdido en
+    // silencio). Mejor detenerlo aquí y decirlo con todas sus letras.
+    MAX_GEOM_BYTES: 45000,
     CONTACT_URL: 'mailto:direccion@aurumarquitectos.com?subject=Quiero%20que%20Aurum%20revise%20mi%20croquis%20CroKiss'
   };
 
@@ -39,6 +44,31 @@
   function num(v) { return parseFloat((''+v).replace(',', '.')); }
   function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function geomStr() { try { return JSON.stringify(ed.getGeom()); } catch (e) { return ''; } }
+
+  // Un plano por encima del tope NO se manda: es un error permanente, así que
+  // ni se postea ni se reintenta. Devuelve true si el plano es demasiado grande.
+  var MSG_GRANDE = 'Tu plano es muy grande para guardarse — simplifícalo o descarga Respaldo';
+
+  // Un error determinista merece una explicación, no un "intenta de nuevo" que
+  // invita a reintentar contra algo que nunca va a funcionar.
+  var ERRORES = {
+    limite_por_correo:   'Llegaste al máximo de proyectos para ese correo.',
+    no_autorizado:       'Ese proyecto pertenece a otra clave.',
+    plano_muy_grande:    MSG_GRANDE,
+    clave_corta:         'Tu clave necesita al menos 6 caracteres.',
+    clave_invalida:      'Esa clave no se puede usar (máximo 40 caracteres).',
+    correo_invalido:     'Revisa tu correo: no parece válido.',
+    demasiados_intentos: 'Demasiados intentos. Espera unos minutos y vuelve a probar.',
+    spam:                'No pudimos procesar el formulario.',
+    error_interno:       'Algo falló de nuestro lado. Tu plano sigue a salvo en este navegador.'
+  };
+  function msgError(code) {
+    return ERRORES[code] || 'No se pudo guardar. Tu plano sigue guardado en este navegador.';
+  }
+  function tooBig(s) {
+    var n = (s == null ? geomStr() : s).length;
+    return n > CONFIG.MAX_GEOM_BYTES;
+  }
 
   function relTime(ts) {
     var d = new Date(ts); if (isNaN(d)) return '';
@@ -90,6 +120,9 @@
     if (busy) { retry(); return; }            // había un sync en vuelo: reprograma en vez de perder el cambio
     var snapshot = geomStr();
     if (snapshot === lastPushed) { dirty = false; setStatus('Guardado en la nube ✓', 'ok'); return; }
+    // Tope de tamaño: error permanente, sin reintento (si no, el aviso nunca
+    // se vería y el usuario creería que su plano está a salvo).
+    if (tooBig(snapshot)) { setStatus(MSG_GRANDE, 'warn'); return; }
     busy = true;
     post({ mode: 'sync', plan_id: ident.planId || '', correo: ident.correo, clave: ident.clave, client_id: clientId(), geom: ed.getGeom() })
       .then(function (res) {
@@ -114,6 +147,7 @@
   }
   function beacon() {
     if (!ident || !dirty) return;
+    if (tooBig()) return;                 // no tiene caso: el backend lo rechazaría
     try {
       var blob = new Blob([JSON.stringify({ mode: 'sync', plan_id: ident.planId || '', correo: ident.correo, clave: ident.clave, client_id: clientId(), geom: ed.getGeom() })], { type: 'text/plain;charset=utf-8' });
       navigator.sendBeacon(CONFIG.ENDPOINT, blob);
@@ -158,6 +192,7 @@
     var honey  = $('ck_g_web') ? $('ck_g_web').value : '';
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correo)) { toast('Escribe un correo válido'); return; }
     if (!clave) { toast('Elige una clave para volver a tu proyecto'); return; }
+    if (tooBig()) { toast(MSG_GRANDE); setStatus('Sin guardar — plano muy grande', 'warn'); return; }
 
     setStatus('Guardando…', 'saving');
     post({ mode: 'save', plan_id: (ident && ident.planId) || '', nombre: nombre, correo: correo, clave: clave,
@@ -172,12 +207,8 @@
           setStatus('Guardado en la nube ✓', 'ok');
           if ($('ck_nudge')) $('ck_nudge').remove();
           showSuccess(correo, clave, !!res.emailed);
-        } else if (res && res.error === 'limite_por_correo') {
-          toast('Llegaste al máximo de proyectos para ese correo.'); setStatus('Borrador local', 'warn');
-        } else if (res && res.error === 'no_autorizado') {
-          toast('Ese proyecto pertenece a otra clave.'); setStatus('Borrador local', 'warn');
         } else {
-          toast('No se pudo guardar. Intenta de nuevo.'); setStatus('Sin guardar', 'warn');
+          toast(msgError(res && res.error)); setStatus('Sin guardar', 'warn');
         }
       })
       .catch(function () {

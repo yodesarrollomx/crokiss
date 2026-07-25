@@ -192,6 +192,23 @@ async function main() {
     });
   }
 
+  /* --- guardarraíl de 45k en el cliente (P1) ---
+     tooBig() vive en el closure del adaptador, así que se verifica que los
+     tres puntos de salida a la red lo consulten antes de postear. */
+  grupo('Tope de 45k en el cliente');
+  const cloud = fs.readFileSync(path.join(RAIZ, 'crokiss-cloud.js'), 'utf8');
+  ok(/MAX_GEOM_BYTES:\s*45000/.test(cloud), 'CONFIG.MAX_GEOM_BYTES = 45000 en el cliente');
+  const cuerpo = (nombre) => {
+    const i = cloud.indexOf('function ' + nombre + '(');
+    return i < 0 ? '' : cloud.slice(i, i + 900);
+  };
+  ['doSync', 'submitSave', 'beacon'].forEach((f) =>
+    ok(/tooBig\(/.test(cuerpo(f)), f + '() consulta el tope antes de salir a la red'));
+  ok(/if \(tooBig\(snapshot\)\) \{ setStatus\(MSG_GRANDE, 'warn'\); return; \}/.test(cloud),
+     'doSync corta SIN reintentar cuando el plano pasa el tope');
+  ok(/plano_muy_grande/.test(cloud) && /demasiados_intentos/.test(cloud) && /clave_corta/.test(cloud),
+     'el mapa de errores cubre los códigos nuevos del backend');
+
   /* --- versión visible --- */
   grupo('Versión desplegada');
   ok(/^\d{4}-\d{2}-\d{2}$/.test(String(win.CK_VERSION || '')), 'CK_VERSION tiene formato YYYY-MM-DD',

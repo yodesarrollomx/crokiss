@@ -61,6 +61,19 @@ Los commits `dcbd102` y `975b699` se construyeron desde copias/zips viejos en ve
 - Rate-limit de `list` por correo (anti-fuerza-bruta).
 - `_esc` escapa comillas; `_newId` usa `Utilities.getUuid()`.
 
+### P1 (2026-07-25) — backend a escala + blindaje de rutas
+
+⚠️ **Requiere re-desplegar `Code.gs` en Apps Script** (ver Despliegue). Hasta que eso pase, el front nuevo sigue funcionando contra el backend viejo.
+
+- **Lecturas quirúrgicas**: ninguna ruta lee ya `geom_json` para buscar. `_meta()` trae solo las columnas 1-10 y `_rowByPlanId()` usa `createTextFinder().matchEntireCell(true)` acotado a la columna `plan_id`. El blob se lee de **una celda**, solo al abrir un plano. (Antes cada request arrastraba hasta 200 KB por fila: el techo real eran ~1.000-2.000 filas.)
+- **El lock solo envuelve la escritura.** El correo y las validaciones salieron fuera.
+- **`MAX_GEOM_BYTES` 200000 → 45000** en backend **y** cliente. Sheets no admite más de ~50.000 caracteres por celda: un plano grande pasaba la validación, reventaba al escribir y dejaba al cliente en reintento infinito. Ahora el cliente ni lo manda y avisa con todas sus letras, **sin reintentar**.
+- **Rate-limit en todas las rutas con credenciales**: `plan` 30/h por id, `doPost` 30/h por correo, `list` 40/h. Claves de `CacheService` **siempre hasheadas** (MD5 base64, 24 chars) para no pasar de 250.
+- **`_rateOk` y `_canEmail` son fail-closed.** Compromiso consciente: si `CacheService` cae, se rechaza en vez de dejar la puerta abierta. Es seguro para el lead porque el front muestra la clave en pantalla cuando el correo no sale.
+- **Errores opacos**: el cliente recibe `error_interno`; el detalle va a `console.error` (Apps Script → Ejecuciones).
+- **Límites**: correo ≤120, clave 6-40. El mínimo de 6 aplica **solo a cuentas nuevas** — una cuenta vieja con clave corta sigue entrando (compatibilidad sagrada, probada).
+- **Mantenimiento**: `podarHistorial()` (20 versiones por plano, borra >90 días, sin leer el blob) y `healthPing()` (avisa por correo si la hoja deja de responder, máx. 1 aviso/6 h). **Los 2 triggers se crean a mano una vez** — instrucciones en la cabecera de `Code.gs`.
+
 ## Pendiente (backend, para segunda ronda — NO shippeado por riesgo)
 
 - **Hasheo de la clave**: hoy se guarda/transmite en claro. ⚠️ **Ya se implementó una vez** (columnas `clave_hash`+`salt`, SHA-256 con `Utilities.computeDigest`, fallback y migración) en el commit **`ec6d029`**, y `975b699` lo revirtió por accidente al subir un `Code.gs` viejo. **No lo reescribas desde cero:** parte de `git show ec6d029:Code.gs` y fusiónalo sobre el `Code.gs` actual. Sigue pendiente probarlo con una cuenta de prueba antes de activar: hacerlo mal bloquea a los leads que regresan.
