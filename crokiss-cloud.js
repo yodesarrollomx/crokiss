@@ -33,8 +33,10 @@
   var syncTimer = null;
   var retryDelay = 5000;   // backoff exponencial de reintentos
 
-  var ID_KEY   = 'crokiss_identity_v1';
-  var GEOM_KEY = 'marbel_editor_geom_v1';   // misma caché del motor
+  var ID_KEY    = 'crokiss_identity_v1';
+  var CLAVE_KEY = 'crokiss_clave_v1';       // sessionStorage: muere al cerrar el navegador
+  var GEOM_KEY  = 'marbel_editor_geom_v1';  // misma caché del motor
+  var IDENT_TTL_MS = 30 * 24 * 3600 * 1000; // la identidad caduca a los 30 días sin uso
 
   /* ---------------- utilidades ---------------- */
   function $(id) { return document.getElementById(id); }
@@ -85,8 +87,53 @@
     el.textContent = text;
     el.className = 'ck-pill' + (kind ? ' ck-pill--' + kind : '');
   }
-  function loadIdent() { try { ident = JSON.parse(localStorage.getItem(ID_KEY) || 'null'); } catch (e) { ident = null; } }
-  function saveIdent() { try { localStorage.setItem(ID_KEY, JSON.stringify(ident)); } catch (e) {} }
+  /* ---------------- identidad e higiene de sesión ----------------
+     La clave YA NO se guarda en localStorage: vive en sessionStorage, así que
+     desaparece al cerrar el navegador. En una computadora compartida, el
+     siguiente en sentarse ya no hereda la sesión de nadie.
+     En localStorage queda solo lo no sensible (planId, correo, nombre del
+     proyecto) con un sello de tiempo: a los 30 días sin uso se descarta.
+     Consecuencia buscada: al volver en otra sesión hay que reescribir la clave
+     para reanudar el sync. El plano local NUNCA se pierde por esto. */
+  function loadIdent() {
+    ident = null;
+    try {
+      var raw = JSON.parse(localStorage.getItem(ID_KEY) || 'null');
+      if (!raw) return;
+      if (raw.ts && (Date.now() - raw.ts) > IDENT_TTL_MS) { localStorage.removeItem(ID_KEY); return; }
+      var clave = '';
+      try { clave = sessionStorage.getItem(CLAVE_KEY) || ''; } catch (e) {}
+      ident = { planId: raw.planId, correo: raw.correo, planName: raw.planName, clave: clave, ts: raw.ts };
+    } catch (e) { ident = null; }
+  }
+  function saveIdent() {
+    try {
+      if (!ident) { localStorage.removeItem(ID_KEY); sessionStorage.removeItem(CLAVE_KEY); actualizaSesionUI(); return; }
+      ident.ts = Date.now();                       // ventana móvil: 30 días desde la última actividad
+      localStorage.setItem(ID_KEY, JSON.stringify({
+        planId: ident.planId, correo: ident.correo, planName: ident.planName, ts: ident.ts
+      }));
+      if (ident.clave) sessionStorage.setItem(CLAVE_KEY, ident.clave);
+      else sessionStorage.removeItem(CLAVE_KEY);
+    } catch (e) {}
+    actualizaSesionUI();
+  }
+  // Sesión utilizable = hay proyecto reclamado Y tenemos su clave en esta sesión.
+  function sesionViva() { return !!(ident && ident.clave); }
+
+  function actualizaSesionUI() {
+    var b = $('ckLogoutBtn');
+    if (b) b.style.display = sesionViva() ? '' : 'none';
+  }
+  function cerrarSesion() {
+    ident = null; lastCreds = null; pendingCreds = null;
+    lastPushed = ''; dirty = false;
+    if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; }
+    try { localStorage.removeItem(ID_KEY); sessionStorage.removeItem(CLAVE_KEY); } catch (e) {}
+    actualizaSesionUI();
+    setStatus('Borrador local', 'warn');
+    toast('Cerraste sesión. Tu plano sigue en este navegador.');
+  }
   function clientId() {
     var k = 'crokiss_client_v1', v = localStorage.getItem(k);
     if (!v) { v = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); try { localStorage.setItem(k, v); } catch (e) {} }
@@ -108,15 +155,30 @@
   }
 
   /* ---------------- sincronización ---------------- */
+  /* Ruta con credenciales: se intenta por POST (la clave NO va en la URL, donde
+     quedaría en el historial del navegador y en los logs). Si el backend
+     desplegado todavía es el anterior, no conoce mode:'abrir'/'plan' y responde
+     'plano_invalido' porque busca un geom que no mandamos: en ese caso se cae a
+     la ruta GET de siempre. Así el front puede publicarse ANTES que el Code.gs
+     sin romper "Abrir con clave" a nadie. */
+  function postCreds(payload, paramsGet) {
+    return post(payload)
+      .then(function (res) {
+        if (res && res.error === 'plano_invalido') return get(paramsGet);   // backend viejo
+        return res;
+      })
+      .catch(function () { return get(paramsGet); });
+  }
+
   function scheduleSync() {
-    if (!ident) return;                  // sin proyecto reclamado: solo local
+    if (!sesionViva()) return;           // sin proyecto reclamado (o sin clave en esta sesión): solo local
     dirty = true;
     setStatus('Guardando…', 'saving');
     if (syncTimer) clearTimeout(syncTimer);
     syncTimer = setTimeout(doSync, CONFIG.SYNC_DEBOUNCE_MS);
   }
   function doSync() {
-    if (!ident) return;
+    if (!sesionViva()) return;
     if (busy) { retry(); return; }            // había un sync en vuelo: reprograma en vez de perder el cambio
     var snapshot = geomStr();
     if (snapshot === lastPushed) { dirty = false; setStatus('Guardado en la nube ✓', 'ok'); return; }
@@ -146,7 +208,7 @@
     maybeNudge();
   }
   function beacon() {
-    if (!ident || !dirty) return;
+    if (!sesionViva() || !dirty) return;
     if (tooBig()) return;                 // no tiene caso: el backend lo rechazaría
     try {
       var blob = new Blob([JSON.stringify({ mode: 'sync', plan_id: ident.planId || '', correo: ident.correo, clave: ident.clave, client_id: clientId(), geom: ed.getGeom() })], { type: 'text/plain;charset=utf-8' });
@@ -223,7 +285,8 @@
     var clave  = ($('ck_a_clave').value  || '').trim();
     if (!correo || !clave) { toast('Escribe tu correo y tu clave'); return; }
     setStatus('Buscando…', 'saving');
-    get({ action: 'list', correo: correo, clave: clave })
+    postCreds({ mode: 'abrir', correo: correo, clave: clave },
+              { action: 'list', correo: correo, clave: clave })
       .then(function (res) {
         if (!res || !res.ok) { toast('No se pudo consultar. Intenta de nuevo.'); return; }
         var items = res.items || [];
@@ -250,7 +313,13 @@
 
   function openProject(planId, correo, clave) {
     setStatus('Abriendo…', 'saving');
-    get({ action: 'plan', id: planId, correo: correo, clave: clave })
+    // Con credenciales va por POST (nada secreto en la URL); el enlace del
+    // correo no trae clave, así que ahí un GET normal no expone nada.
+    var pedir = (correo && clave)
+      ? postCreds({ mode: 'plan', id: planId, correo: correo, clave: clave },
+                  { action: 'plan', id: planId, correo: correo, clave: clave })
+      : get({ action: 'plan', id: planId });
+    pedir
       .then(function (res) {
         if (res && res.ok && res.geom) {
           ed.loadGeom(res.geom);
@@ -339,10 +408,14 @@
   function wire() {
     if ($('ckSaveBtn')) $('ckSaveBtn').addEventListener('click', function () {
       var c = ident || lastCreds;
-      if (c) { $('ck_g_correo').value = c.correo || ''; $('ck_g_clave').value = c.clave || ''; }
+      // Se precarga SOLO el correo. La clave nunca se rellena sola: en una
+      // computadora compartida, un campo ya lleno es la sesión de alguien más.
+      if (c) $('ck_g_correo').value = c.correo || '';
+      $('ck_g_clave').value = '';
       $('ck_g_plan').value = (ident && ident.planName) || '';
       show($('ck_modal_guardar'));
     });
+    if ($('ckLogoutBtn')) $('ckLogoutBtn').addEventListener('click', cerrarSesion);
     if ($('ckOpenBtn')) $('ckOpenBtn').addEventListener('click', function () { show($('ck_modal_abrir')); });
     if ($('ckNewBtn'))  $('ckNewBtn').addEventListener('click', function () {
       if (confirm('¿Empezar un proyecto nuevo? Guarda el actual con tu clave para no perderlo.')) {
@@ -386,12 +459,19 @@
 
     var openId = new URLSearchParams(location.search).get('open');
 
+    actualizaSesionUI();
+
     if (openId) {
       openProject(openId);                  // desde el enlace del correo (sin clave en la URL)
-    } else if (ident) {
+    } else if (sesionViva()) {
       lastSeen = geomStr(); lastPushed = '';
       setStatus('Guardado en la nube ✓', 'ok');
       scheduleSync();                       // sube cambios locales pendientes de la sesión pasada
+    } else if (ident) {
+      // El proyecto sigue reclamado, pero la clave murió al cerrar el navegador
+      // (a propósito). Se edita en local hasta que la reescriba al guardar.
+      lastSeen = geomStr(); lastPushed = '';
+      setStatus('Escribe tu clave para seguir guardando en la nube', 'warn');
     } else if (localStorage.getItem(GEOM_KEY)) {
       lastSeen = geomStr();
       setStatus('Borrador local — guarda con tu clave', 'warn');

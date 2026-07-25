@@ -74,6 +74,30 @@ Los commits `dcbd102` y `975b699` se construyeron desde copias/zips viejos en ve
 - **Límites**: correo ≤120, clave 6-40. El mínimo de 6 aplica **solo a cuentas nuevas** — una cuenta vieja con clave corta sigue entrando (compatibilidad sagrada, probada).
 - **Mantenimiento**: `podarHistorial()` (20 versiones por plano, borra >90 días, sin leer el blob) y `healthPing()` (avisa por correo si la hoja deja de responder, máx. 1 aviso/6 h). **Los 2 triggers se crean a mano una vez** — instrucciones en la cabecera de `Code.gs`.
 
+### P2 (2026-07-25) — correo desarmado + la clave deja de estar en claro
+
+⚠️ **Requiere re-desplegar `Code.gs`.** El front ya está preparado para los dos backends (ver "negociación" abajo).
+
+**Correo (era un cañón apuntando a cualquier buzón):** antes bastaba un POST con `correo=víctima` y `clave="lo que sea"` para que Apps Script mandara un correo con el diseño de Aurum y el texto del atacante donde va la clave. Ahora:
+- Solo se manda en el **primer** guardado (`isNew`). La rama `body.sendEmail` **se eliminó**: el front nunca la usaba y era un reenvío gratis a cualquier destinatario.
+- La clave debe cumplir `/^[A-Za-z0-9 ._-]{6,32}$/` para salir en el correo. Una clave rara no impide guardar, solo el envío.
+- El plano debe tener contenido real (≥4 muros y ≥2 vanos/muebles): un terreno vacío ya no dispara correo.
+- El nombre se filtra antes de entrar a la plantilla. Topes bajados a **40/día y 2 por destinatario**.
+- Si existe el alias del dominio se manda con `GmailApp` desde `direccion@aurumarquitectos.com` (mejor entregabilidad); si no, cae solo a `MailApp`. Los pasos de SPF/DKIM/DMARC están comentados en `_sendPlanEmail`.
+- Ningún lead se queda sin su clave: cuando el correo no sale, la pantalla de éxito la muestra igual.
+
+**Clave hasheada con migración transparente:** columna nueva `clave_hash` (se crea sola, **antes** de `geom_json` para no romper la lectura quirúrgica). Hash = `SHA-256(correo + '|' + clave + '|' + SALT)`, con el SALT en `PropertiesService`, creado una vez y **nunca** cambiado. Al entrar una cuenta vieja se compara contra el texto plano, se escribe el hash y **se vacía la celda de la clave**. Cubre las 3 rutas (guardar, abrir por id, listar). La matriz completa está probada en `pruebas/backend.js`.
+
+> 🚨 **Una vez desplegado, NO se puede volver al `Code.gs` anterior.** El backend viejo solo sabe comparar texto plano y las filas ya migradas lo tienen vacío: sus dueños quedarían fuera. Si algo sale mal, se corrige hacia adelante.
+
+**Higiene de sesión (`crokiss-cloud.js`):**
+- La clave sale de `localStorage` y pasa a **`sessionStorage`**: muere al cerrar el navegador. En `localStorage` queda solo lo no sensible (`planId`, `correo`, `planName`, `ts`) y **caduca a los 30 días** sin uso (ventana móvil).
+- Consecuencia buscada: al volver en otra sesión hay que reescribir la clave para reanudar el sync. **El plano local nunca se pierde** — solo el sync se pausa, y el pill lo dice.
+- El modal de guardar **ya no precarga la clave** (solo el correo). Botón **⎋ Cerrar sesión**, visible solo con sesión activa.
+- Credenciales por **POST**, no en la query string (donde quedaban en el historial y en los logs).
+
+**Negociación de despliegue (no estaba en el plan, pero es indispensable):** el front se publica solo con el push, el `Code.gs` no. Si el front nuevo exigiera el backend nuevo, "Abrir con clave" se rompería para todos hasta el re-despliegue. Por eso `postCreds()` intenta la ruta POST y, si el backend responde `plano_invalido` (que es lo que contesta el backend viejo al no encontrar un `geom`), **cae sola a la ruta GET de siempre**. Funciona con los dos backends y se actualiza sola cuando pegues el `Code.gs`.
+
 ## Pendiente (backend, para segunda ronda — NO shippeado por riesgo)
 
 - **Hasheo de la clave**: hoy se guarda/transmite en claro. ⚠️ **Ya se implementó una vez** (columnas `clave_hash`+`salt`, SHA-256 con `Utilities.computeDigest`, fallback y migración) en el commit **`ec6d029`**, y `975b699` lo revirtió por accidente al subir un `Code.gs` viejo. **No lo reescribas desde cero:** parte de `git show ec6d029:Code.gs` y fusiónalo sobre el `Code.gs` actual. Sigue pendiente probarlo con una cuenta de prueba antes de activar: hacerlo mal bloquea a los leads que regresan.

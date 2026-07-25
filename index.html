@@ -77,7 +77,12 @@
   .ck-modal .accent{color:var(--accent);}
   .ck-field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px;}
   .ck-field label{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);}
-  .ck-field input[type=text],.ck-field input[type=email]{font-family:var(--fl);font-size:14px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);width:100%;}
+  .ck-field input[type=text],.ck-field input[type=email],.ck-field input[type=password]{font-family:var(--fl);font-size:14px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);width:100%;}
+  /* campo de clave: oculta por defecto, con ojo para revelarla */
+  .ck-pass{position:relative;display:block;}
+  .ck-pass input{padding-right:42px !important;}
+  .ck-eye{position:absolute;right:5px;top:50%;transform:translateY(-50%);background:none;border:0;cursor:pointer;font-size:15px;line-height:1;padding:5px 7px;border-radius:6px;opacity:.6;}
+  .ck-eye:hover{opacity:1;background:#f0ece4;}
   .ck-row{display:flex;gap:10px;}
   .ck-row .ck-field{flex:1;}
   .ck-presets{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 16px;}
@@ -159,6 +164,7 @@
       <button class="btn primary" id="ckSaveBtn">💾 Guardar mi proyecto</button>
       <button class="btn" id="ckOpenBtn">📂 Abrir con clave</button>
       <button class="btn" id="ckNewBtn">✦ Nuevo</button>
+      <button class="btn" id="ckLogoutBtn" title="Olvidar tu clave en este navegador" style="display:none">⎋ Cerrar sesión</button>
       <button class="btn primary" id="btnLamina" title="Tu plano como lámina profesional, lista para imprimir o PDF">📐 Lámina</button>
       <button class="btn" id="btnFachadas" title="Mira las 4 fachadas y edita las alturas de tu proyecto">🏠 Fachadas</button>
       <button class="btn" id="dlBtn">⬇ Respaldo</button>
@@ -249,7 +255,9 @@
     <div class="ck-field"><label>Nombre del proyecto</label><input type="text" id="ck_g_plan" placeholder="Mi casa"></div>
     <div class="ck-field"><label>Tu nombre (opcional)</label><input type="text" id="ck_g_nombre" placeholder="Nombre"></div>
     <div class="ck-field"><label>Correo</label><input type="email" id="ck_g_correo" placeholder="tucorreo@ejemplo.com" autocomplete="email"></div>
-    <div class="ck-field"><label>Elige una clave para volver</label><input type="text" id="ck_g_clave" placeholder="ej. mi-casa-2026" autocomplete="off"></div>
+    <div class="ck-field"><label>Elige una clave para volver</label>
+      <span class="ck-pass"><input type="password" id="ck_g_clave" placeholder="ej. mi-casa-2026" autocomplete="new-password"><button type="button" class="ck-eye" data-pass="ck_g_clave" aria-label="Mostrar u ocultar la clave">👁</button></span>
+    </div>
     <input type="text" id="ck_g_web" class="ck-hp" tabindex="-1" autocomplete="off" aria-hidden="true">
     <label class="ck-check"><input type="checkbox" id="ck_g_mkt"><span>Quiero que un arquitecto de Aurum me contacte con ideas para mi proyecto.</span></label>
     <p class="sub" style="font-size:11px;margin:8px 0 0">Al guardar aceptas nuestro <a href="https://aurumarquitectos.com/aviso-de-privacidad" target="_blank" rel="noopener" style="color:var(--accent)">aviso de privacidad</a>. Usamos tu correo solo para enviarte tu plano y, si lo autorizas, para contactarte.</p>
@@ -265,7 +273,9 @@
     <h3>Abrir con clave</h3>
     <p class="sub">Escribe el correo y la clave con que guardaste tu proyecto.</p>
     <div class="ck-field"><label>Correo</label><input type="email" id="ck_a_correo" placeholder="tucorreo@ejemplo.com" autocomplete="email"></div>
-    <div class="ck-field"><label>Clave</label><input type="text" id="ck_a_clave" placeholder="tu clave" autocomplete="off"></div>
+    <div class="ck-field"><label>Clave</label>
+      <span class="ck-pass"><input type="password" id="ck_a_clave" placeholder="tu clave" autocomplete="current-password"><button type="button" class="ck-eye" data-pass="ck_a_clave" aria-label="Mostrar u ocultar la clave">👁</button></span>
+    </div>
     <div class="ck-actions">
       <a class="ck-link" id="ck_a_close">Cancelar</a>
       <button class="btn primary" id="ck_a_go">Abrir →</button>
@@ -440,6 +450,16 @@
     const txt = ed.summary();
     try { await navigator.clipboard.writeText(txt); toast('Resumen copiado'); }
     catch(e){ const ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); toast('Resumen copiado'); }
+  });
+
+  // ---- ojo para revelar la clave (los campos nacen ocultos) ----
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('.ck-eye'); if (!b) return;
+    var inp = document.getElementById(b.getAttribute('data-pass')); if (!inp) return;
+    var oculta = inp.type === 'password';
+    inp.type = oculta ? 'text' : 'password';
+    b.textContent = oculta ? '🙈' : '👁';
+    inp.focus();
   });
 
   // ---- robustez de modales: Esc cierra · Enter envía · autofocus ----

@@ -62,8 +62,8 @@ var CONFIG = {
   MAX_CLAVE:        40,            // máximo de clave
 
   MAX_POR_CORREO:   60,            // máx. proyectos por correo (anti-abuso)
-  MAX_EMAIL_CORREO: 3,             // máx. correos a un mismo destinatario / ventana 6 h
-  MAX_EMAIL_DIA:    80,            // tope global de correos / ventana 6 h (cuota MailApp)
+  MAX_EMAIL_CORREO: 2,             // máx. correos a un mismo destinatario / ventana 6 h
+  MAX_EMAIL_DIA:    40,            // tope global de correos / ventana 6 h (cuota MailApp)
   MAX_LIST_CORREO:  40,            // máx. consultas 'list' por correo / hora
   MAX_PLAN_ID:      30,            // máx. aperturas de un mismo plan_id / hora
   MAX_SAVE_CORREO:  30,            // máx. guardados por correo / hora
@@ -72,8 +72,65 @@ var CONFIG = {
   HIST_DIAS:        90             // antigüedad máxima en Historial
 };
 
+// clave_hash va ANTES de geom_json a propósito: así todos los metadatos quedan
+// contiguos en las primeras columnas y el blob sigue siendo el último (que es
+// lo que hace posible la lectura quirúrgica de P1).
 var HEADERS = ['ts','plan_id','client_id','nombre','correo','clave',
-               'plan_name','version','marketing','source','geom_json'];
+               'plan_name','version','marketing','source','clave_hash','geom_json'];
+
+/* ============ SEGURIDAD DE LA CLAVE (P2) ============
+ * La clave se guarda HASHEADA: SHA-256(correo + '|' + clave + '|' + SALT).
+ * El SALT vive en PropertiesService, se crea solo la primera vez y NUNCA se
+ * cambia (cambiarlo invalidaría la clave de todos los usuarios existentes).
+ *
+ * MIGRACIÓN TRANSPARENTE: las filas viejas siguen teniendo la clave en claro.
+ * La primera vez que su dueño entra correctamente, se escribe el hash y se
+ * VACÍA la celda de texto plano. Nadie tiene que hacer nada.
+ *
+ * ⚠️ CONSECUENCIA: una vez desplegado esto, NO se puede volver al Code.gs
+ * anterior. El backend viejo solo sabe comparar texto plano, y las filas ya
+ * migradas lo tienen vacío: sus dueños quedarían fuera. Si algo sale mal,
+ * corrige hacia adelante, no hacia atrás.
+ */
+function _salt() {
+  var props = PropertiesService.getScriptProperties();
+  var s = props.getProperty('CK_SALT');
+  if (!s) { s = Utilities.getUuid(); props.setProperty('CK_SALT', s); }
+  return s;
+}
+function _hashClave(correo, clave) {
+  var base = String(correo || '').toLowerCase() + '|' + String(clave || '') + '|' + _salt();
+  return Utilities.base64Encode(
+    Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, base, Utilities.Charset.UTF_8));
+}
+/* ¿Esta fila pertenece a estas credenciales? Compara contra el hash si la fila
+   ya está migrada, y contra el texto plano si todavía no. NO escribe nada:
+   se usa dentro de barridos, donde migrar fila por fila sería carísimo. */
+function _match(fila, col, clave, esperado) {
+  if (col.clave_hash !== undefined) {
+    var h = String(fila[col.clave_hash] || '');
+    if (h) return h === esperado;
+  }
+  return String(fila[col.clave] || '') === String(clave);
+}
+/* Migra UNA fila a hash (y vacía la clave en claro). Si falla, se traga el
+   error: jamás debe impedir que alguien entre a su propio proyecto. */
+function _migraFila(sh, meta, rowIdx, esperado) {
+  try {
+    if (meta.col.clave_hash === undefined) return;
+    sh.getRange(rowIdx, meta.col.clave_hash + 1).setValue(esperado);
+    sh.getRange(rowIdx, meta.col.clave + 1).setValue('');
+  } catch (err) { console.error('migración de clave fila ' + rowIdx + ': ' + err); }
+}
+/* Añade la columna clave_hash justo antes de geom_json si todavía no existe. */
+function _addClaveHash(sh, meta) {
+  try {
+    var gi = meta.col.geom_json;
+    if (gi === undefined) { sh.getRange(1, meta.header.length + 1).setValue('clave_hash'); return; }
+    sh.insertColumnBefore(gi + 1);
+    sh.getRange(1, gi + 1).setValue('clave_hash');
+  } catch (err) { console.error('no se pudo crear clave_hash: ' + err); }
+}
 
 /* ============================ ENTRADAS ============================ */
 
@@ -84,37 +141,7 @@ function doGet(e) {
 
     if (action === 'ping') return _json({ ok: true, pong: true });
 
-    if (action === 'plan') {                 // abrir un proyecto por id
-      var id = String(p.id || '').slice(0, 60);
-      if (!id) return _json({ ok: false, error: 'no_encontrado' });
-      // Anti-abuso: sin esto, cualquiera agota la cuota diaria golpeando action=plan.
-      if (!_rateOk(_ckey('pl_', id), CONFIG.MAX_PLAN_ID, 3600))
-        return _json({ ok: false, error: 'demasiados_intentos' });
-
-      var sh = _sheet(CONFIG.SHEET_PLANOS);
-      var meta = _meta(sh);                                  // SIN geom_json
-      var rowIdx = _rowByPlanId(sh, meta, id);
-      if (rowIdx < 0) return _json({ ok: false, error: 'no_encontrado' });
-      var row = _rowObj(meta.data[rowIdx - 2], meta.col);
-
-      var pCorreo = String(p.correo || '').toLowerCase();
-      var pClave  = String(p.clave  || '');
-      var authed = !!(pCorreo || pClave) &&
-        String(row.correo).toLowerCase() === pCorreo &&
-        String(row.clave) === pClave;
-      if ((pCorreo || pClave) && !authed) return _json({ ok: false, error: 'no_autorizado' });
-
-      // El blob se lee AQUÍ y solo aquí: una celda, no la hoja entera.
-      var geomStr = _readGeom(sh, meta, rowIdx);
-      var geom;
-      try { geom = JSON.parse(geomStr); } catch (err) {
-        console.error('geom_json corrupto en fila ' + rowIdx + ': ' + err);
-        return _json({ ok: false, error: 'no_encontrado' });
-      }
-      // Seguridad: nunca devolvemos la clave; el correo solo si el que pregunta ya la sabe.
-      return _json({ ok: true, geom: geom, plan_name: row.plan_name,
-        version: row.version, plan_id: row.plan_id, correo: authed ? row.correo : undefined });
-    }
+    if (action === 'plan') return _json(_abrirPlan(p.id, p.correo, p.clave));
 
     // 'list' (default): proyectos que coinciden con correo + clave (anti-fuerza-bruta)
     var lc = String(p.correo || '').toLowerCase();
@@ -127,6 +154,38 @@ function doGet(e) {
     console.error('doGet: ' + (err && err.stack ? err.stack : err));
     return _json({ ok: false, error: 'error_interno' });
   }
+}
+
+/* Abrir un plano por id. Compartido por doGet(action=plan) y doPost(mode=plan):
+   la ruta POST existe para que la clave NO viaje en la barra de direcciones
+   (donde queda en el historial del navegador y en los logs del servidor). */
+function _abrirPlan(idRaw, correoRaw, claveRaw) {
+  var id = String(idRaw || '').slice(0, 60);
+  if (!id) return { ok: false, error: 'no_encontrado' };
+  // Anti-abuso: sin esto, cualquiera agota la cuota diaria golpeando esta ruta.
+  if (!_rateOk(_ckey('pl_', id), CONFIG.MAX_PLAN_ID, 3600))
+    return { ok: false, error: 'demasiados_intentos' };
+
+  var sh = _sheet(CONFIG.SHEET_PLANOS);
+  var meta = _meta(sh);                                  // SIN geom_json
+  var rowIdx = _rowByPlanId(sh, meta, id);
+  if (rowIdx < 0) return { ok: false, error: 'no_encontrado' };
+  var row = _rowObj(meta.data[rowIdx - 2], meta.col);
+
+  var authed = _autorizado(sh, meta, rowIdx, row,
+                           String(correoRaw || '').toLowerCase(), String(claveRaw || ''));
+  if ((correoRaw || claveRaw) && !authed) return { ok: false, error: 'no_autorizado' };
+
+  // El blob se lee AQUÍ y solo aquí: una celda, no la hoja entera.
+  var geomStr = _readGeom(sh, meta, rowIdx);
+  var geom;
+  try { geom = JSON.parse(geomStr); } catch (err) {
+    console.error('geom_json corrupto en fila ' + rowIdx + ': ' + err);
+    return { ok: false, error: 'no_encontrado' };
+  }
+  // Seguridad: nunca devolvemos la clave; el correo solo si el que pregunta ya la sabe.
+  return { ok: true, geom: geom, plan_name: row.plan_name,
+    version: row.version, plan_id: row.plan_id, correo: authed ? row.correo : undefined };
 }
 
 function doPost(e) {
@@ -143,6 +202,17 @@ function doPost(e) {
       return _json({ ok: false, error: 'correo_invalido' });
     if (!clave || clave.length > CONFIG.MAX_CLAVE)
       return _json({ ok: false, error: 'clave_invalida' });
+
+    /* ---- rutas de LECTURA con credenciales por POST ----
+       Mismo resultado que las de doGet, pero sin dejar la clave en la URL.
+       El front las intenta primero y cae a GET si el backend aún no las tiene. */
+    if (mode === 'abrir') {
+      if (!_rateOk(_ckey('ab_', correo), CONFIG.MAX_LIST_CORREO, 3600))
+        return _json({ ok: false, error: 'demasiados_intentos' });
+      var lista = _listByCredentials(correo, clave);
+      return _json({ ok: true, count: lista.length, items: lista });
+    }
+    if (mode === 'plan') return _json(_abrirPlan(body.id, correo, clave));
 
     var geom = body.geom;
     if (!geom || !geom.walls) return _json({ ok: false, error: 'plano_invalido' });
@@ -164,9 +234,17 @@ function doPost(e) {
     }
     if (r.error) return _json({ ok: false, error: r.error });
 
-    /* ---- correo: FUERA del lock (tarda segundos y no debe bloquear a nadie) ---- */
+    /* ---- correo: FUERA del lock (tarda segundos y no debe bloquear a nadie) ----
+       Solo en el PRIMER guardado de un plano con contenido real. Antes bastaba
+       un POST con correo=víctima para que Apps Script le mandara un correo con
+       diseño de Aurum y el texto que el atacante quisiera en el lugar de la
+       clave. Ahora: solo isNew (la rama body.sendEmail se eliminó porque el
+       front nunca la usaba y era un reenvío gratis a cualquier buzón), la clave
+       tiene que pasar un formato estricto, y el plano tiene que ser algo más
+       que el terreno vacío. Si no sale el correo, el front muestra la clave en
+       pantalla: ningún lead se queda sin ella. */
     var emailed = false;
-    if (mode === 'save' && (r.isNew || body.sendEmail) && _canEmail(correo)) {
+    if (mode === 'save' && r.isNew && _claveEnviable(clave) && _planoConContenido(geom) && _canEmail(correo)) {
       try { _sendPlanEmail(correo, r.nombre, r.planName, clave, r.planId); emailed = true; }
       catch (err) { console.error('correo a ' + correo + ': ' + err); }
     }
@@ -179,12 +257,27 @@ function doPost(e) {
   }
 }
 
+/* ¿Las credenciales dan acceso a esta fila? Si dan y la fila todavía guarda la
+   clave en claro, la migra a hash en ese momento (transparente para el usuario). */
+function _autorizado(sh, meta, rowIdx, row, correo, clave) {
+  if (!correo && !clave) return false;
+  if (String(row.correo).toLowerCase() !== String(correo || '').toLowerCase()) return false;
+  var esperado = _hashClave(correo, clave);
+  var h = String(row.clave_hash || '');
+  if (h) return h === esperado;
+  if (String(row.clave || '') !== String(clave)) return false;
+  _migraFila(sh, meta, rowIdx, esperado);        // fila vieja: se migra al entrar
+  return true;
+}
+
 /* Escritura de la fila. Se llama SIEMPRE con el lock tomado y nunca lee geom_json. */
 function _guardarFila(mode, correo, clave, geomStr, body) {
   var sh = _sheet(CONFIG.SHEET_PLANOS);
   var meta = _meta(sh);
+  if (meta.col.clave_hash === undefined) { _addClaveHash(sh, meta); meta = _meta(sh); }
   var col = meta.col;
   var planName = String(body.plan_name || 'Mi proyecto').slice(0, 80);
+  var esperado = _hashClave(correo, clave);
 
   // ---- localizar la fila destino (sin arrastrar el blob) ----
   var rowIdx = -1, existing = null;
@@ -192,12 +285,12 @@ function _guardarFila(mode, correo, clave, geomStr, body) {
   if (wantId) {                                  // actualizar un proyecto concreto
     rowIdx = _rowByPlanId(sh, meta, wantId);
     if (rowIdx > 0) existing = _rowObj(meta.data[rowIdx - 2], col);
-    if (existing && (String(existing.correo).toLowerCase() !== correo || String(existing.clave) !== clave))
+    if (existing && !_autorizado(sh, meta, rowIdx, existing, correo, clave))
       return { error: 'no_autorizado' };          // seguridad: dueño correcto
   } else {                                       // sin id: reanudar por nombre o crear
     for (var j = 0; j < meta.data.length; j++)
       if (String(meta.data[j][col.correo]).toLowerCase() === correo &&
-          String(meta.data[j][col.clave]) === clave &&
+          _match(meta.data[j], col, clave, esperado) &&
           String(meta.data[j][col.plan_name]) === planName) {
         rowIdx = j + 2; existing = _rowObj(meta.data[j], col); break;
       }
@@ -224,9 +317,10 @@ function _guardarFila(mode, correo, clave, geomStr, body) {
   var clientId = String(body.client_id || (existing && existing.client_id) || '').slice(0, 60);
   var marketing = body.marketing ? 'si' : ((existing && existing.marketing) || 'no');
 
+  // La clave se escribe SOLO hasheada: la celda de texto plano queda vacía.
   var rowValues = _orderRow({
     ts: now, plan_id: planId, client_id: _safeCell(clientId), nombre: _safeCell(nombre), correo: _safeCell(correo),
-    clave: _safeCell(clave), plan_name: _safeCell(planName), version: version, marketing: marketing,
+    clave: '', clave_hash: esperado, plan_name: _safeCell(planName), version: version, marketing: marketing,
     source: 'crokiss-web', geom_json: geomStr
   }, meta.header);
 
@@ -312,8 +406,9 @@ function _listByCredentials(correo, clave) {
   var out = [];
   if (!correo || !clave) return out;
   var sh = _sheet(CONFIG.SHEET_PLANOS), meta = _meta(sh), col = meta.col;   // sin geom_json
+  var esperado = _hashClave(correo, clave);
   for (var i = 0; i < meta.data.length; i++)
-    if (String(meta.data[i][col.correo]).toLowerCase() === correo && String(meta.data[i][col.clave]) === clave)
+    if (String(meta.data[i][col.correo]).toLowerCase() === correo && _match(meta.data[i], col, clave, esperado))
       out.push({ plan_id: String(meta.data[i][col.plan_id]),
                  plan_name: String(meta.data[i][col.plan_name] || 'Mi proyecto'),
                  version: Number(meta.data[i][col.version]) || 1,
@@ -370,9 +465,29 @@ function _json(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
+/* La clave se imprime destacada dentro del correo: solo se manda si tiene un
+   formato inofensivo. Una clave rara no bloquea el guardado, solo el correo. */
+function _claveEnviable(clave) { return /^[A-Za-z0-9 ._-]{6,32}$/.test(String(clave || '')); }
+
+/* Un plano "real" es algo más que los 4 muros del terreno: al menos un par de
+   vanos o muebles. Corta el correo automático a planos vacíos (que es como se
+   bombardea un buzón ajeno sin dejar rastro). */
+function _planoConContenido(geom) {
+  if (!geom) return false;
+  var n = function (a) { return Array.isArray(a) ? a.length : 0; };
+  var vanos = n(geom.windows) + n(geom.doors) + n(geom.sliders) + n(geom.furniture);
+  return n(geom.walls) >= 4 && vanos >= 2;
+}
+
+/* Nombre saneado antes de entrar a la plantilla del correo. */
+function _nombreLimpio(s) {
+  return String(s || '').replace(/[^A-Za-zÀ-ÿ' .-]/g, '').trim().slice(0, 40);
+}
+
 function _sendPlanEmail(correo, nombre, planName, clave, planId) {
   var editorUrl = CONFIG.SITE_BASE + CONFIG.EDITOR_FILE + '?open=' + encodeURIComponent(planId);
-  var saludo = nombre ? ('Hola ' + _esc(nombre)) : 'Hola';
+  var limpio = _nombreLimpio(nombre);
+  var saludo = limpio ? ('Hola ' + _esc(limpio)) : 'Hola';
   var html =
     '<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:auto;color:#16181d">' +
       '<div style="background:#16181d;color:#fff;padding:22px 24px;border-radius:12px 12px 0 0">' +
@@ -391,8 +506,28 @@ function _sendPlanEmail(correo, nombre, planName, clave, planId) {
         '<p style="font-size:12px;color:#6b6256">&iquest;Quieres llevar tu idea al siguiente nivel? En Aurum Arquitectos y Yodesarrollo te ayudamos a hacerla realidad. Responde este correo y platicamos.</p>' +
       '</div>' +
     '</div>';
-  MailApp.sendEmail({ to: correo, name: CONFIG.REMITENTE_NOMBRE,
-    subject: 'Tu proyecto en CroKiss — tu clave para volver', htmlBody: html });
+  var asunto = 'Tu proyecto en CroKiss — tu clave para volver';
+
+  /* Entregabilidad: si la cuenta que corre el script tiene configurado el alias
+     del dominio, se manda DESDE direccion@aurumarquitectos.com (mucho menos
+     spam que un remitente @gmail).
+     Para que el alias funcione y no caiga en spam, el dominio necesita:
+       · SPF   — TXT en aurumarquitectos.com:
+                 "v=spf1 include:_spf.google.com ~all"
+       · DKIM  — Admin de Google Workspace → Apps → Gmail → Autenticar correo:
+                 generar la clave y publicar el TXT google._domainkey
+       · DMARC — TXT en _dmarc.aurumarquitectos.com:
+                 "v=DMARC1; p=none; rua=mailto:direccion@aurumarquitectos.com"
+                 (empezar en p=none y subir a quarantine cuando los reportes salgan limpios)
+     Si el alias no existe, cae solito a MailApp: nunca deja de mandarse. */
+  try {
+    GmailApp.sendEmail(correo, asunto, '', {
+      htmlBody: html, name: CONFIG.REMITENTE_NOMBRE, from: CONFIG.ALERTA_CORREO
+    });
+  } catch (err) {
+    console.log('alias no disponible, se manda con MailApp: ' + err);
+    MailApp.sendEmail({ to: correo, name: CONFIG.REMITENTE_NOMBRE, subject: asunto, htmlBody: html });
+  }
 }
 
 /* ======================== MANTENIMIENTO (triggers) ======================== */

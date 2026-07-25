@@ -209,6 +209,44 @@ async function main() {
   ok(/plano_muy_grande/.test(cloud) && /demasiados_intentos/.test(cloud) && /clave_corta/.test(cloud),
      'el mapa de errores cubre los códigos nuevos del backend');
 
+  /* --- P2: higiene de sesión --- */
+  grupo('Higiene de sesión (P2)');
+  const gClave = $('ck_g_clave'), aClave = $('ck_a_clave');
+  ok(gClave && gClave.type === 'password', 'el campo de clave al guardar nace oculto');
+  ok(aClave && aClave.type === 'password', 'el campo de clave al abrir nace oculto');
+  ok(doc.querySelectorAll('.ck-eye').length === 2, 'ambos campos traen el ojo para revelar');
+
+  // el ojo alterna de verdad
+  const ojo = doc.querySelector('.ck-eye[data-pass="ck_g_clave"]');
+  ojo.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+  ok(gClave.type === 'text', 'el ojo revela la clave');
+  ojo.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+  ok(gClave.type === 'password', 'y la vuelve a ocultar');
+
+  ok(!!$('ckLogoutBtn'), 'existe el botón de cerrar sesión');
+  ok($('ckLogoutBtn').style.display === 'none', 'y arranca oculto porque no hay sesión');
+
+  // la clave NO debe quedar en localStorage; la identidad sí (sin clave)
+  win.localStorage.setItem('crokiss_identity_v1', JSON.stringify({
+    planId: 'ck1', correo: 'ana@x.com', planName: 'Mi casa', ts: Date.now() }));
+  win.sessionStorage.setItem('crokiss_clave_v1', 'clave-uno');
+  const guardado = JSON.parse(win.localStorage.getItem('crokiss_identity_v1'));
+  ok(!('clave' in guardado), 'la identidad de localStorage no lleva la clave');
+  ok(win.sessionStorage.getItem('crokiss_clave_v1') === 'clave-uno', 'la clave vive en sessionStorage');
+
+  // el modal de guardar no precarga la clave
+  $('ckSaveBtn').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+  ok($('ck_g_clave').value === '', 'abrir el modal de guardar NO precarga la clave');
+  $('ck_g_close').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+
+  const cloud2 = fs.readFileSync(path.join(RAIZ, 'crokiss-cloud.js'), 'utf8');
+  ok(/IDENT_TTL_MS\s*=\s*30 \* 24 \* 3600 \* 1000/.test(cloud2), 'la identidad caduca a los 30 días');
+  ok(/function postCreds/.test(cloud2), 'existe la negociación POST→GET para credenciales');
+  ok(/mode: 'abrir'/.test(cloud2) && /mode: 'plan'/.test(cloud2),
+     'abrir y plan se piden por POST (la clave no viaja en la URL)');
+  ok(/res\.error === 'plano_invalido'/.test(cloud2),
+     'y cae a GET si el backend desplegado todavía es el anterior');
+
   /* --- versión visible --- */
   grupo('Versión desplegada');
   ok(/^\d{4}-\d{2}-\d{2}$/.test(String(win.CK_VERSION || '')), 'CK_VERSION tiene formato YYYY-MM-DD',
