@@ -98,6 +98,19 @@ Los commits `dcbd102` y `975b699` se construyeron desde copias/zips viejos en ve
 
 **Negociación de despliegue (no estaba en el plan, pero es indispensable):** el front se publica solo con el push, el `Code.gs` no. Si el front nuevo exigiera el backend nuevo, "Abrir con clave" se rompería para todos hasta el re-despliegue. Por eso `postCreds()` intenta la ruta POST y, si el backend responde `plano_invalido` (que es lo que contesta el backend viejo al no encontrar un `geom`), **cae sola a la ruta GET de siempre**. Funciona con los dos backends y se actualiza sola cuando pegues el `Code.gs`.
 
+### P3 (2026-07-25) — física táctil honesta
+
+Solo front: **no requiere re-desplegar nada del backend.**
+
+- **Manijas de tamaño constante en pantalla.** `K = viewBox.width / svg.clientWidth` se recalcula en cada repintado (y al redimensionar); radios, plumas y zonas tocables se multiplican por K. Cada manija lleva además un círculo invisible de 22 px de radio → **44 px de diámetro real**. Antes eran de radio fijo en unidades de usuario: en un iPhone con el terreno ajustado quedaban en ~4 px.
+- **Los vanos viven en su muro.** Campo aditivo `wallId` en los vanos nuevos (los viejos se siguen deduciendo por orientación + coordenada fija). Mover un muro —arrastrando el cuerpo **o con las flechas**— se lleva sus ventanas, puertas y corredizas. Al arrastrar un vano o acortar el muro, `clampVano()` lo mantiene dentro. Y **borrar un muro se lleva sus vanos** (se había perdido en la reescritura: quedaban agujeros flotando).
+- **Duplicar y copiar/pegar.** `ed.duplicateSel()`, botón **⧉ Duplicar** junto a ✕ Borrar y `Ctrl/⌘+D`. `Ctrl/⌘+C` y `Ctrl/⌘+V` usan un búfer **interno**: no se toca el portapapeles del sistema. Un vano duplicado se queda en su mismo muro.
+- **Historia honesta.** `onDown` ya no empuja historia: guarda un candidato y `confirmaHistoria()` lo confirma en el primer movimiento real o al alternar un block. Seleccionar cinco veces ya no llena el Deshacer de estados idénticos.
+- **Pinch limpio.** Si el segundo dedo llega a media arrastre, `cancelaDrag()` devuelve el elemento (y sus vanos) a donde estaba y descarta la historia. Antes quedaba movido un paso que nadie pidió.
+- **Escalar mueble con ancla:** la esquina opuesta se queda clavada; el centro se recalcula. Antes crecía hacia los dos lados.
+- **Export limpio:** `exportPNG` y la impresión (`beforeprint`/`afterprint`) deseleccionan antes de clonar y restauran después. La selección terracota ya no sale en lo que el usuario manda por WhatsApp.
+- **Barra móvil:** en ≤640 px los grupos y el `.mas-wrap` pasan a `display:contents` para que los botones empaqueten de verdad (el `.spacer` con `flex:1` era el que forzaba saltos de fila), etiquetas largas ocultas, `touch-action:manipulation`, y menú propio **⋯ Más** con zoom/Avanzado/PNG/Rehacer/Fachadas/Abrir/Nuevo/Respaldo/Importar/Copiar/Imprimir. Medido en 390 px: **de 246 px y 6 filas a 97 px y 2 filas** (12% de la pantalla). La paleta de muebles entra desde abajo como hoja (45 vh) en vez de tapar el costado. En escritorio todo sigue en línea, en las mismas 3 filas de siempre.
+
 ## Pendiente (backend, para segunda ronda — NO shippeado por riesgo)
 
 - **Hasheo de la clave**: hoy se guarda/transmite en claro. ⚠️ **Ya se implementó una vez** (columnas `clave_hash`+`salt`, SHA-256 con `Utilities.computeDigest`, fallback y migración) en el commit **`ec6d029`**, y `975b699` lo revirtió por accidente al subir un `Code.gs` viejo. **No lo reescribas desde cero:** parte de `git show ec6d029:Code.gs` y fusiónalo sobre el `Code.gs` actual. Sigue pendiente probarlo con una cuenta de prueba antes de activar: hacerlo mal bloquea a los leads que regresan.

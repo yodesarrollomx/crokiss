@@ -54,6 +54,23 @@
 
     // ---- zoom / desplazamiento (solo vista; no altera la geometría) ----
     let vb = null, panMode = false, spaceDown = false, panning = null;
+    /* K = unidades de usuario por píxel real de pantalla. Todo lo que deba
+       medir lo mismo con el plano entero a la vista y con zoom al máximo
+       (manijas, zonas tocables, plumas de selección) se multiplica por K.
+       Antes las manijas eran de radio fijo en unidades de usuario: en un
+       iPhone con el terreno ajustado quedaban en ~4 px y no se podían agarrar. */
+    let K = 1;
+    const HIT_PX = 22;    // radio tocable en px reales → 44 px de diámetro
+    const VIS_PX = 9;     // radio visible en px reales
+    const ACC = '#c75b39';
+    /* Manija: un círculo invisible grande (lo que atrapa el dedo) y encima el
+       círculo visible, pequeño y limpio. */
+    function manija(cx, cy, kind, id, part, cursor, visPx) {
+      const rv = (visPx || VIS_PX) * K, rh = Math.max(HIT_PX * K, rv);
+      const d = { 'data-kind': kind, 'data-id': id, 'data-part': part, style: 'cursor:' + (cursor || 'pointer') };
+      return el('circle', Object.assign({ cx: cx, cy: cy, r: rh, fill: 'rgba(0,0,0,0)' }, d)) +
+             el('circle', Object.assign({ cx: cx, cy: cy, r: rv, fill: '#fff', stroke: ACC, 'stroke-width': 2 * K }, d));
+    }
     const ptrs = new Map();            // punteros activos (para pinch de 2 dedos)
     let pinch = null;                  // gesto de zoom/pan con 2 dedos
 
@@ -105,10 +122,16 @@
     function save() {
       try { localStorage.setItem(KEY, JSON.stringify(geom)); } catch (e) {}
     }
-    function pushHistory() {
-      history.push(JSON.stringify(geom));
+    function pushSnapshot(s) {
+      history.push(s);
       if (history.length > 60) history.shift();
       redo = [];                                     // una acción nueva invalida el rehacer
+    }
+    function pushHistory() { pushSnapshot(JSON.stringify(geom)); }
+    // Confirma el estado previo guardado al empezar un arrastre, pero solo la
+    // primera vez que ese arrastre cambia algo de verdad.
+    function confirmaHistoria() {
+      if (drag && !drag.pushed) { pushSnapshot(drag.snap0); drag.pushed = true; }
     }
     function clearHistory() { history.length = 0; redo = []; }   // al abrir otro proyecto/terreno
     function undo() {
@@ -257,6 +280,11 @@
       const b = bounds();
       VW = X(b.maxX) + 150;
       VH = Y(b.maxY) + 170;
+      // Escala pantalla↔usuario del repintado actual (se recalcula tras cada
+      // zoom, pinch o "Ajustar", porque todos terminan llamando a render()).
+      const anchoCSS = (svgEl && svgEl.clientWidth) || 0;
+      K = anchoCSS > 0 ? ((vb ? vb.w : VW) / anchoCSS) : 1;
+      if (!isFinite(K) || K <= 0) K = 1;
 
       let g = '';
       // fondo
@@ -457,11 +485,11 @@
             hit += el('rect', { x: bx, y: by, width: Math.max(bw, 6), height: Math.max(bh, 6), fill: 'transparent', 'data-kind': 'block', 'data-id': w.id, 'data-idx': bk.idx, style: 'cursor:pointer' });
           });
         } else {
-          hit += el('line', { x1: X(w.x1), y1: Y(w.y1), x2: X(w.x2), y2: Y(w.y2), stroke: 'transparent', 'stroke-width': Math.max(tpx, 16), 'stroke-linecap': 'round', 'data-kind': 'wall', 'data-id': w.id, 'data-part': 'body', style: 'cursor:move' });
+          hit += el('line', { x1: X(w.x1), y1: Y(w.y1), x2: X(w.x2), y2: Y(w.y2), stroke: 'transparent', 'stroke-width': Math.max(tpx, HIT_PX * K), 'stroke-linecap': 'round', 'data-kind': 'wall', 'data-id': w.id, 'data-part': 'body', style: 'cursor:move' });
         }
         if (isSel) {
           [['p1', w.x1, w.y1], ['p2', w.x2, w.y2]].forEach(([p, mx, my]) => {
-            hit += el('circle', { cx: X(mx), cy: Y(my), r: 10, fill: '#fff', stroke: '#c75b39', 'stroke-width': 2, 'data-kind': 'wall', 'data-id': w.id, 'data-part': p, style: 'cursor:crosshair' });
+            hit += manija(X(mx), Y(my), 'wall', w.id, p, 'crosshair', 10);
           });
         }
       });
@@ -469,32 +497,32 @@
       geom.windows.forEach((wn) => {
         const isSel = sel && sel.kind === 'window' && sel.id === wn.id;
         if (wn.wall === 'h') {
-          hit += el('rect', { x: X(wn.a), y: Y(wn.fixed) - 9, width: (wn.b - wn.a) * PPM, height: 18, fill: 'transparent', 'data-kind': 'window', 'data-id': wn.id, 'data-part': 'body', style: 'cursor:move' });
-          if (isSel) { hit += el('circle', { cx: X(wn.a), cy: Y(wn.fixed), r: 9, fill: '#fff', stroke: '#c75b39', 'stroke-width': 2, 'data-kind': 'window', 'data-id': wn.id, 'data-part': 'a', style: 'cursor:ew-resize' }); hit += el('circle', { cx: X(wn.b), cy: Y(wn.fixed), r: 9, fill: '#fff', stroke: '#c75b39', 'stroke-width': 2, 'data-kind': 'window', 'data-id': wn.id, 'data-part': 'b', style: 'cursor:ew-resize' }); }
+          hit += el('rect', { x: X(wn.a), y: Y(wn.fixed) - HIT_PX * K / 2, width: (wn.b - wn.a) * PPM, height: HIT_PX * K, fill: 'transparent', 'data-kind': 'window', 'data-id': wn.id, 'data-part': 'body', style: 'cursor:move' });
+          if (isSel) { hit += manija(X(wn.a), Y(wn.fixed), 'window', wn.id, 'a', 'ew-resize') + manija(X(wn.b), Y(wn.fixed), 'window', wn.id, 'b', 'ew-resize'); }
         } else {
-          hit += el('rect', { x: X(wn.fixed) - 9, y: Y(wn.a), width: 18, height: (wn.b - wn.a) * PPM, fill: 'transparent', 'data-kind': 'window', 'data-id': wn.id, 'data-part': 'body', style: 'cursor:move' });
-          if (isSel) { hit += el('circle', { cx: X(wn.fixed), cy: Y(wn.a), r: 9, fill: '#fff', stroke: '#c75b39', 'stroke-width': 2, 'data-kind': 'window', 'data-id': wn.id, 'data-part': 'a', style: 'cursor:ns-resize' }); hit += el('circle', { cx: X(wn.fixed), cy: Y(wn.b), r: 9, fill: '#fff', stroke: '#c75b39', 'stroke-width': 2, 'data-kind': 'window', 'data-id': wn.id, 'data-part': 'b', style: 'cursor:ns-resize' }); }
+          hit += el('rect', { x: X(wn.fixed) - HIT_PX * K / 2, y: Y(wn.a), width: HIT_PX * K, height: (wn.b - wn.a) * PPM, fill: 'transparent', 'data-kind': 'window', 'data-id': wn.id, 'data-part': 'body', style: 'cursor:move' });
+          if (isSel) { hit += manija(X(wn.fixed), Y(wn.a), 'window', wn.id, 'a', 'ns-resize') + manija(X(wn.fixed), Y(wn.b), 'window', wn.id, 'b', 'ns-resize'); }
         }
       });
       // puertas corredizas: cuerpo + extremos a/b (igual que ventanas)
       geom.sliders.forEach((s) => {
         const isSel = sel && sel.kind === 'slider' && sel.id === s.id;
         if (s.wall === 'h') {
-          hit += el('rect', { x: X(s.a), y: Y(s.fixed) - 9, width: (s.b - s.a) * PPM, height: 18, fill: 'transparent', 'data-kind': 'slider', 'data-id': s.id, 'data-part': 'body', style: 'cursor:move' });
-          if (isSel) { hit += el('circle', { cx: X(s.a), cy: Y(s.fixed), r: 9, fill: '#fff', stroke: '#c75b39', 'stroke-width': 2, 'data-kind': 'slider', 'data-id': s.id, 'data-part': 'a', style: 'cursor:ew-resize' }); hit += el('circle', { cx: X(s.b), cy: Y(s.fixed), r: 9, fill: '#fff', stroke: '#c75b39', 'stroke-width': 2, 'data-kind': 'slider', 'data-id': s.id, 'data-part': 'b', style: 'cursor:ew-resize' }); }
+          hit += el('rect', { x: X(s.a), y: Y(s.fixed) - HIT_PX * K / 2, width: (s.b - s.a) * PPM, height: HIT_PX * K, fill: 'transparent', 'data-kind': 'slider', 'data-id': s.id, 'data-part': 'body', style: 'cursor:move' });
+          if (isSel) { hit += manija(X(s.a), Y(s.fixed), 'slider', s.id, 'a', 'ew-resize') + manija(X(s.b), Y(s.fixed), 'slider', s.id, 'b', 'ew-resize'); }
         } else {
-          hit += el('rect', { x: X(s.fixed) - 9, y: Y(s.a), width: 18, height: (s.b - s.a) * PPM, fill: 'transparent', 'data-kind': 'slider', 'data-id': s.id, 'data-part': 'body', style: 'cursor:move' });
-          if (isSel) { hit += el('circle', { cx: X(s.fixed), cy: Y(s.a), r: 9, fill: '#fff', stroke: '#c75b39', 'stroke-width': 2, 'data-kind': 'slider', 'data-id': s.id, 'data-part': 'a', style: 'cursor:ns-resize' }); hit += el('circle', { cx: X(s.fixed), cy: Y(s.b), r: 9, fill: '#fff', stroke: '#c75b39', 'stroke-width': 2, 'data-kind': 'slider', 'data-id': s.id, 'data-part': 'b', style: 'cursor:ns-resize' }); }
+          hit += el('rect', { x: X(s.fixed) - HIT_PX * K / 2, y: Y(s.a), width: HIT_PX * K, height: (s.b - s.a) * PPM, fill: 'transparent', 'data-kind': 'slider', 'data-id': s.id, 'data-part': 'body', style: 'cursor:move' });
+          if (isSel) { hit += manija(X(s.fixed), Y(s.a), 'slider', s.id, 'a', 'ns-resize') + manija(X(s.fixed), Y(s.b), 'slider', s.id, 'b', 'ns-resize'); }
         }
       });
       // puertas: cuerpo + manija de ancho (jamba opuesta a la bisagra)
       geom.doors.forEach((d) => {
         const isSel = sel && sel.kind === 'door' && sel.id === d.id;
-        if (d.wall === 'h') { const x0 = Math.min(d.hx, d.hx + d.along[0] * d.w); hit += el('rect', { x: X(x0), y: Y(d.hy) - 9, width: d.w * PPM, height: 18, fill: 'transparent', 'data-kind': 'door', 'data-id': d.id, 'data-part': 'body', style: 'cursor:move' }); }
-        else { const y0 = Math.min(d.hy, d.hy + d.along[1] * d.w); hit += el('rect', { x: X(d.hx) - 9, y: Y(y0), width: 18, height: d.w * PPM, fill: 'transparent', 'data-kind': 'door', 'data-id': d.id, 'data-part': 'body', style: 'cursor:move' }); }
+        if (d.wall === 'h') { const x0 = Math.min(d.hx, d.hx + d.along[0] * d.w); hit += el('rect', { x: X(x0), y: Y(d.hy) - HIT_PX * K / 2, width: d.w * PPM, height: HIT_PX * K, fill: 'transparent', 'data-kind': 'door', 'data-id': d.id, 'data-part': 'body', style: 'cursor:move' }); }
+        else { const y0 = Math.min(d.hy, d.hy + d.along[1] * d.w); hit += el('rect', { x: X(d.hx) - HIT_PX * K / 2, y: Y(y0), width: HIT_PX * K, height: d.w * PPM, fill: 'transparent', 'data-kind': 'door', 'data-id': d.id, 'data-part': 'body', style: 'cursor:move' }); }
         if (isSel) {
           const ex = X(d.hx + d.along[0] * d.w), ey = Y(d.hy + d.along[1] * d.w);
-          hit += el('circle', { cx: ex, cy: ey, r: 9, fill: '#fff', stroke: '#c75b39', 'stroke-width': 2, 'data-kind': 'door', 'data-id': d.id, 'data-part': 'w', style: 'cursor:crosshair' });
+          hit += manija(ex, ey, 'door', d.id, 'w', 'crosshair');
         }
       });
       // mobiliario: cuerpo (rota con la pieza) + manijas girar/escalar
@@ -505,10 +533,10 @@
         if (isSel) {
           gh += el('rect', { x: -wpx / 2, y: -hpx / 2, width: wpx, height: hpx, fill: 'none', stroke: '#c75b39', 'stroke-width': 1, 'stroke-dasharray': '4 3', opacity: 0.8 });
           // escalar: esquina inf-derecha (local)
-          gh += el('circle', { cx: wpx / 2, cy: hpx / 2, r: 9, fill: '#fff', stroke: '#c75b39', 'stroke-width': 2, 'data-kind': 'furn', 'data-id': f.id, 'data-part': 'scale', style: 'cursor:nwse-resize' });
+          gh += manija(wpx / 2, hpx / 2, 'furn', f.id, 'scale', 'nwse-resize');
           // girar: arriba al centro
-          gh += el('line', { x1: 0, y1: -hpx / 2, x2: 0, y2: -hpx / 2 - 18, stroke: '#c75b39', 'stroke-width': 1.4 });
-          gh += el('circle', { cx: 0, cy: -hpx / 2 - 22, r: 9, fill: '#fff', stroke: '#c75b39', 'stroke-width': 2, 'data-kind': 'furn', 'data-id': f.id, 'data-part': 'rotate', style: 'cursor:grab' });
+          gh += el('line', { x1: 0, y1: -hpx / 2, x2: 0, y2: -hpx / 2 - 18 * K, stroke: ACC, 'stroke-width': 1.4 * K });
+          gh += manija(0, -hpx / 2 - 22 * K, 'furn', f.id, 'rotate', 'grab');
         }
         hit += el('g', { transform: `translate(${cx} ${cy}) rotate(${f.rot || 0})` }, gh);
       });
@@ -548,8 +576,28 @@
     function ptrDist() { const a = [...ptrs.values()]; return Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y); }
     function ptrMid() { const a = [...ptrs.values()]; return { x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2 }; }
     function userAt(cx, cy) { const v = currentVB(), r = svgEl.getBoundingClientRect(); return { x: v.x + (cx - r.left) / r.width * v.w, y: v.y + (cy - r.top) / r.height * v.h }; }
+    /* Deshace lo que alcanzó a moverse un arrastre interrumpido. */
+    function cancelaDrag() {
+      if (!drag) return;
+      if (drag.kind === 'drawwall') {
+        geom.walls = geom.walls.filter((x) => x.id !== drag.id);   // el muro a medio dibujar se va
+        sel = null;
+      } else if (drag.orig) {
+        const obj = find(drag.kind, drag.id);
+        if (obj) Object.assign(obj, JSON.parse(JSON.stringify(drag.orig)));
+        (drag.vanos || []).forEach((v) => Object.assign(v.o, JSON.parse(JSON.stringify(v.orig))));
+      }
+      if (drag.pushed) history.pop();          // esa historia ya no corresponde a nada
+      drag = null;
+      svgEl.removeEventListener('pointermove', onMove);
+      svgEl.removeEventListener('pointerup', onUp);
+      svgEl.removeEventListener('pointercancel', onUp);
+      render();
+    }
     function startPinch() {
-      if (drag) { drag = null; svgEl.removeEventListener('pointermove', onMove); svgEl.removeEventListener('pointerup', onUp); }
+      // El segundo dedo llegó a media arrastre: el elemento se devuelve a donde
+      // estaba. Antes se quedaba movido un paso que nadie pidió.
+      if (drag) cancelaDrag();
       if (panning) endPan();
       pinch = { dist: ptrDist(), mid: ptrMid() };
     }
@@ -615,9 +663,20 @@
       const obj = find(kind, id);
       if (!obj) return;
       sel = { kind, id };
-      pushHistory();
       const m0 = clientToM(ev.clientX, ev.clientY);
-      drag = { kind, id, part, m0, orig: JSON.parse(JSON.stringify(obj)), blockToggle, moved: false, pointerId: ev.pointerId };
+      // Historia HONESTA: seleccionar no es mutar. Se guarda un candidato y se
+      // confirma en cuanto hay un cambio real (primer movimiento o toggle de
+      // block). Antes, tocar 5 veces un muro llenaba la pila de estados
+      // idénticos y el usuario sentía que "↶ Deshacer no hace nada".
+      drag = {
+        kind, id, part, m0, orig: JSON.parse(JSON.stringify(obj)), blockToggle,
+        moved: false, pointerId: ev.pointerId,
+        snap0: JSON.stringify(geom), pushed: false,
+        // los vanos que viajan con este muro, con su estado inicial
+        vanos: kind === 'wall'
+          ? vanosDe(obj).map((o) => ({ o: o, orig: JSON.parse(JSON.stringify(o)) }))
+          : null
+      };
       try { svgEl.setPointerCapture(ev.pointerId); } catch (e) {}
       svgEl.addEventListener('pointermove', onMove);
       svgEl.addEventListener('pointerup', onUp);
@@ -629,6 +688,62 @@
       const arr = kind === 'wall' ? geom.walls : kind === 'window' ? geom.windows : kind === 'slider' ? geom.sliders : kind === 'furn' ? geom.furniture : kind === 'label' ? geom.labels : geom.doors;
       return arr.find((o) => o.id === id);
     }
+
+    /* ============ vanos y su muro anfitrión ============
+       Un vano (ventana, corrediza o puerta) no es independiente: vive EN un
+       muro. Antes, mover una pared dejaba sus ventanas flotando en el aire y
+       arrastrar un vano lo podía sacar del muro. Ahora hay una relación
+       explícita: `wallId` en los vanos nuevos y, para los planos ya guardados,
+       la deducción de siempre (misma orientación + misma coordenada fija). */
+    function coordFija(o) { return o.fixed != null ? o.fixed : (o.wall === 'h' ? o.hy : o.hx); }
+    function vanoEnMuro(o, w) {
+      if (o.wallId) return o.wallId === w.id;
+      const h = isH(w);
+      if ((o.wall === 'h') !== h) return false;
+      return Math.abs(coordFija(o) - (h ? w.y1 : w.x1)) < 1e-6;
+    }
+    function vanosDe(w) {
+      if (!w) return [];
+      return [].concat(geom.windows || [], geom.sliders || [], geom.doors || [])
+               .filter((o) => vanoEnMuro(o, w));
+    }
+    function muroDe(o) { return (geom.walls || []).find((w) => vanoEnMuro(o, w)); }
+
+    /* Traslada un vano el mismo delta que su muro. */
+    function trasladaVano(o, base, ddx, ddy) {
+      const h = o.wall === 'h';
+      if (o.a != null) {                       // ventana / corrediza
+        o.fixed = round2(base.fixed + (h ? ddy : ddx));
+        const along = h ? ddx : ddy;
+        o.a = round2(base.a + along); o.b = round2(base.b + along);
+      } else {                                 // puerta
+        o.hx = round2(base.hx + ddx); o.hy = round2(base.hy + ddy);
+      }
+    }
+
+    /* Un vano nunca debe salirse de su muro: si el muro se acortó, el vano se
+       recorre (y si de plano ya no cabe, se encoge hasta lo que hay). */
+    function clampVano(o, w) {
+      if (!w) return;
+      const h = isH(w);
+      const lo = h ? Math.min(w.x1, w.x2) : Math.min(w.y1, w.y2);
+      const hi = h ? Math.max(w.x1, w.x2) : Math.max(w.y1, w.y2);
+      const largo = hi - lo;
+      if (largo <= 0) return;
+      if (o.a != null) {
+        const len = Math.min(Math.max(o.b - o.a, 0.05), largo);
+        const a = clamp(o.a, lo, hi - len);
+        o.a = round2(a); o.b = round2(a + len);
+        o.fixed = round2(h ? w.y1 : w.x1);
+      } else {
+        const anc = Math.min(Math.max(o.w, 0.40), largo);
+        const pos = clamp(h ? o.hx : o.hy, lo, hi - anc);
+        o.w = round2(anc);
+        if (h) { o.hx = round2(pos); o.hy = round2(w.y1); }
+        else   { o.hy = round2(pos); o.hx = round2(w.x1); }
+      }
+    }
+    function clampVanosDe(w) { vanosDe(w).forEach((o) => clampVano(o, w)); }
     // colocar mueble en el punto m (metros), centrado
     function placeFurniture(type, m) {
       const cat = (window.PlanFurniture && window.PlanFurniture.CATALOG[type]) || { w: 1, h: 1 };
@@ -658,12 +773,12 @@
         let start = snapV(clamp(click - wd / 2, lo, hi - wd));
         const along = horizontal ? [1, 0] : [0, 1];
         const open = horizontal ? [0, 1] : [1, 0];
-        const d = { id: nid('d'), wall: tag, hx: horizontal ? start : fixed, hy: horizontal ? fixed : start, w: wd, along, open };
+        const d = { id: nid('d'), wall: tag, wallId: w.id, hx: horizontal ? start : fixed, hy: horizontal ? fixed : start, w: wd, along, open };
         geom.doors.push(d); sel = { kind: 'door', id: d.id };
       } else {
         const wd = type === 'slider' ? 1.50 : 1.10;
         let a = snapV(clamp(click - wd / 2, lo, hi - wd));
-        const o = { id: nid(type === 'slider' ? 's' : 'v'), wall: tag, fixed, a, b: round2(a + wd) };
+        const o = { id: nid(type === 'slider' ? 's' : 'v'), wall: tag, wallId: w.id, fixed, a, b: round2(a + wd) };
         (type === 'slider' ? geom.sliders : geom.windows).push(o);
         sel = { kind: type, id: o.id };
       }
@@ -687,6 +802,7 @@
       // umbral clic vs arrastre (para diferenciar reforzar block de mover muro)
       if (!drag.moved && Math.hypot(dx, dy) > 0.04) drag.moved = true;
       if (drag.blockToggle && !drag.moved) { ev.preventDefault(); return; }
+      if (drag.moved) confirmaHistoria();       // ahora sí hubo mutación
 
       const o = drag.orig, obj = find(drag.kind, drag.id);
       if (drag.kind === 'wall') {
@@ -694,34 +810,52 @@
           if (isV(o)) { const nx = snapV(o.x1 + dx); obj.x1 = nx; obj.x2 = nx; }
           else if (isH(o)) { const ny = snapV(o.y1 + dy); obj.y1 = ny; obj.y2 = ny; }
           else { obj.x1 = snapV(o.x1 + dx); obj.y1 = snapV(o.y1 + dy); obj.x2 = snapV(o.x2 + dx); obj.y2 = snapV(o.y2 + dy); }
+          // los vanos viajan con el muro, exactamente el mismo delta
+          const ddx = obj.x1 - o.x1, ddy = obj.y1 - o.y1;
+          (drag.vanos || []).forEach((v) => trasladaVano(v.o, v.orig, ddx, ddy));
         } else {
           const px = drag.part === 'p1' ? 'x1' : 'x2', py = drag.part === 'p1' ? 'y1' : 'y2';
           obj[px] = snapV(o[px] + dx); obj[py] = snapV(o[py] + dy);
         }
+        // el muro cambió de largo o de sitio: nadie se queda fuera de él
+        (drag.vanos || []).forEach((v) => clampVano(v.o, obj));
       } else if (drag.kind === 'window' || drag.kind === 'slider') {
         const along = obj.wall === 'h' ? dx : dy;
         if (drag.part === 'body') { const len = o.b - o.a; let na = snapV(o.a + along); obj.a = na; obj.b = round2(na + len); }
         else if (drag.part === 'a') { obj.a = Math.min(snapV(o.a + along), round2(obj.b - 0.2)); }
         else if (drag.part === 'b') { obj.b = Math.max(snapV(o.b + along), round2(obj.a + 0.2)); }
+        clampVano(obj, muroDe(obj));            // no se sale de su muro anfitrión
       } else if (drag.kind === 'door') {
         if (drag.part === 'w') {
           const dAlong = (m.x - o.hx) * o.along[0] + (m.y - o.hy) * o.along[1];
           obj.w = Math.max(0.40, snapV(dAlong));
         } else if (obj.wall === 'h') obj.hx = snapV(o.hx + dx);
         else obj.hy = snapV(o.hy + dy);
+        clampVano(obj, muroDe(obj));
       } else if (drag.kind === 'label') {
         obj.cx = snapV(o.cx + dx); obj.cy = snapV(o.cy + dy);
       } else if (drag.kind === 'furn') {
         if (drag.part === 'body') {
           obj.cx = snapV(o.cx + dx); obj.cy = snapV(o.cy + dy);
         } else if (drag.part === 'scale') {
-          // vector centro→puntero en marco local (deshaciendo rotación)
-          const ang = -(o.rot || 0) * Math.PI / 180;
-          const vx = m.x - o.cx, vy = m.y - o.cy;
-          const lx = vx * Math.cos(ang) - vy * Math.sin(ang);
-          const ly = vx * Math.sin(ang) + vy * Math.cos(ang);
-          obj.w = Math.max(0.20, snapV(Math.abs(lx) * 2));
-          obj.h = Math.max(0.20, snapV(Math.abs(ly) * 2));
+          /* Escalar con ANCLA: la esquina opuesta se queda clavada donde está.
+             Antes el centro era el ancla, así que al agrandar un mueble crecía
+             para los dos lados y se salía por el lado que no estabas tocando. */
+          const rad = (o.rot || 0) * Math.PI / 180;
+          const cos = Math.cos(rad), sin = Math.sin(rad);
+          const aLocal = { x: -o.w / 2, y: -o.h / 2 };           // esquina opuesta, en local
+          const ancla = { x: o.cx + aLocal.x * cos - aLocal.y * sin,
+                          y: o.cy + aLocal.x * sin + aLocal.y * cos };
+          // puntero relativo al ancla, de vuelta al marco local
+          const vx = m.x - ancla.x, vy = m.y - ancla.y;
+          const lx =  vx * cos + vy * sin;
+          const ly = -vx * sin + vy * cos;
+          obj.w = Math.max(0.20, snapV(Math.abs(lx)));
+          obj.h = Math.max(0.20, snapV(Math.abs(ly)));
+          // recolocar el centro para que el ancla NO se mueva
+          const cLocal = { x: obj.w / 2, y: obj.h / 2 };
+          obj.cx = round2(ancla.x + cLocal.x * cos - cLocal.y * sin);
+          obj.cy = round2(ancla.y + cLocal.x * sin + cLocal.y * cos);
         } else if (drag.part === 'rotate') {
           const ang = Math.atan2(m.y - o.cy, m.x - o.cx) * 180 / Math.PI + 90;
           let r = Math.round(ang / 15) * 15; // pasos de 15°
@@ -737,7 +871,11 @@
         if (w && wallLen(w) < 0.10) { geom.walls = geom.walls.filter((x) => x.id !== w.id); sel = null; }
       } else if (drag && drag.blockToggle && !drag.moved) {
         const w = find('wall', drag.blockToggle.wallId);
-        if (w) { w.re = w.re || []; const i = w.re.indexOf(drag.blockToggle.idx); if (i >= 0) w.re.splice(i, 1); else w.re.push(drag.blockToggle.idx); }
+        if (w) {
+          confirmaHistoria();                  // el toggle SÍ es una mutación
+          w.re = w.re || []; const i = w.re.indexOf(drag.blockToggle.idx);
+          if (i >= 0) w.re.splice(i, 1); else w.re.push(drag.blockToggle.idx);
+        }
       }
       drag = null;
       svgEl.removeEventListener('pointermove', onMove);
@@ -757,19 +895,22 @@
       if (ev.key === 'Escape') { if (placing) { placing = null; if (svgEl) svgEl.style.cursor = ''; render(); ev.preventDefault(); } return; }
       if ((ev.key === 'z' || ev.key === 'Z') && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); if (ev.shiftKey) redoAct(); else undo(); return; }
       if (ev.key === ' ') { if (!spaceDown) { spaceDown = true; if (svgEl) svgEl.style.cursor = 'grab'; } ev.preventDefault(); return; }
+      // Duplicar / copiar / pegar. Pegar debe funcionar SIN selección, así que
+      // van antes del guard de abajo. El portapapeles es interno: no se toca el
+      // del sistema, para no pisar lo que el usuario tenga copiado.
+      if (ev.ctrlKey || ev.metaKey) {
+        const t = String(ev.key).toLowerCase();
+        if (t === 'd') { ev.preventDefault(); duplicateSel(); return; }
+        if (t === 'c') { ev.preventDefault(); copiarSel(); return; }
+        if (t === 'v') { ev.preventDefault(); pegarBuffer(); return; }
+      }
       if (!sel) return;
       const step = snap > 0 ? snap : 0.05;
       const obj = find(sel.kind, sel.id);
       if (!obj) return;
       let used = true;
       if (ev.key === 'Delete' || ev.key === 'Backspace') {
-        if (sel.kind === 'window') { pushHistory(); geom.windows = geom.windows.filter((o) => o.id !== sel.id); sel = null; }
-        else if (sel.kind === 'slider') { pushHistory(); geom.sliders = geom.sliders.filter((o) => o.id !== sel.id); sel = null; }
-        else if (sel.kind === 'door') { pushHistory(); geom.doors = geom.doors.filter((o) => o.id !== sel.id); sel = null; }
-        else if (sel.kind === 'wall') { pushHistory(); geom.walls = geom.walls.filter((o) => o.id !== sel.id); sel = null; }
-        else if (sel.kind === 'furn') { pushHistory(); geom.furniture = geom.furniture.filter((o) => o.id !== sel.id); sel = null; }
-        else if (sel.kind === 'label') { pushHistory(); geom.labels = geom.labels.filter((o) => o.id !== sel.id); sel = null; }
-        else used = false;
+        pushHistory(); borraElemento(sel.kind, sel.id); sel = null;
       } else if (ev.key === 'r' || ev.key === 'R') {
         if (sel.kind === 'furn') { pushHistory(); obj.rot = (((obj.rot || 0) + 90) % 360); }
         else used = false;
@@ -777,9 +918,15 @@
         pushHistory();
         const dx = ev.key === 'ArrowLeft' ? -step : ev.key === 'ArrowRight' ? step : 0;
         const dy = ev.key === 'ArrowUp' ? -step : ev.key === 'ArrowDown' ? step : 0;
-        if (sel.kind === 'wall') { obj.x1 = round2(obj.x1 + dx); obj.x2 = round2(obj.x2 + dx); obj.y1 = round2(obj.y1 + dy); obj.y2 = round2(obj.y2 + dy); }
-        else if (sel.kind === 'window' || sel.kind === 'slider') { if (obj.wall === 'h') { obj.a = round2(obj.a + dx); obj.b = round2(obj.b + dx); } else { obj.a = round2(obj.a + dy); obj.b = round2(obj.b + dy); } }
-        else if (sel.kind === 'door') { if (obj.wall === 'h') obj.hx = round2(obj.hx + dx); else obj.hy = round2(obj.hy + dy); }
+        if (sel.kind === 'wall') {
+          // los vanos también viajan con las flechas, no solo con el arrastre
+          const suyos = vanosDe(obj).map((o) => ({ o: o, orig: JSON.parse(JSON.stringify(o)) }));
+          obj.x1 = round2(obj.x1 + dx); obj.x2 = round2(obj.x2 + dx);
+          obj.y1 = round2(obj.y1 + dy); obj.y2 = round2(obj.y2 + dy);
+          suyos.forEach((v) => { trasladaVano(v.o, v.orig, dx, dy); clampVano(v.o, obj); });
+        }
+        else if (sel.kind === 'window' || sel.kind === 'slider') { if (obj.wall === 'h') { obj.a = round2(obj.a + dx); obj.b = round2(obj.b + dx); } else { obj.a = round2(obj.a + dy); obj.b = round2(obj.b + dy); } clampVano(obj, muroDe(obj)); }
+        else if (sel.kind === 'door') { if (obj.wall === 'h') obj.hx = round2(obj.hx + dx); else obj.hy = round2(obj.hy + dy); clampVano(obj, muroDe(obj)); }
         else if (sel.kind === 'furn') { obj.cx = round2(obj.cx + dx); obj.cy = round2(obj.cy + dy); }
       } else used = false;
       if (used) { save(); render(); ev.preventDefault(); }
@@ -791,7 +938,94 @@
     // ---- acciones de selección ----
     function flipHinge() { const o = find('door', sel && sel.id); if (!o) return; pushHistory(); o.hx += o.along[0] * o.w; o.hy += o.along[1] * o.w; o.along = [-o.along[0], -o.along[1]]; save(); render(); }
     function flipSwing() { const o = find('door', sel && sel.id); if (!o) return; pushHistory(); o.open = [-o.open[0], -o.open[1]]; save(); render(); }
-    function delSel() { if (!sel) return; if (sel.kind === 'window') { pushHistory(); geom.windows = geom.windows.filter((o) => o.id !== sel.id); } else if (sel.kind === 'slider') { pushHistory(); geom.sliders = geom.sliders.filter((o) => o.id !== sel.id); } else if (sel.kind === 'door') { pushHistory(); geom.doors = geom.doors.filter((o) => o.id !== sel.id); } else if (sel.kind === 'wall') { pushHistory(); geom.walls = geom.walls.filter((o) => o.id !== sel.id); } else if (sel.kind === 'furn') { pushHistory(); geom.furniture = geom.furniture.filter((o) => o.id !== sel.id); } else if (sel.kind === 'label') { pushHistory(); geom.labels = geom.labels.filter((o) => o.id !== sel.id); } sel = null; save(); render(); }
+    /* Borrar un muro se lleva sus vanos: una ventana sin muro es un agujero
+       flotando en el aire (y ensucia el resumen, la lámina y las fachadas). */
+    function borraElemento(kind, id) {
+      if (kind === 'wall') {
+        const w = find('wall', id);
+        const suyos = w ? vanosDe(w).map((o) => o.id) : [];
+        geom.walls = geom.walls.filter((o) => o.id !== id);
+        const fuera = (o) => suyos.indexOf(o.id) < 0 && o.wallId !== id;
+        geom.windows = geom.windows.filter(fuera);
+        geom.sliders = geom.sliders.filter(fuera);
+        geom.doors   = geom.doors.filter(fuera);
+        return;
+      }
+      const lista = kind === 'window' ? 'windows' : kind === 'slider' ? 'sliders'
+                  : kind === 'door' ? 'doors' : kind === 'furn' ? 'furniture'
+                  : kind === 'label' ? 'labels' : null;
+      if (lista) geom[lista] = geom[lista].filter((o) => o.id !== id);
+    }
+    function delSel() {
+      if (!sel) return;
+      pushHistory();
+      borraElemento(sel.kind, sel.id);
+      sel = null; save(); render();
+    }
+
+    /* ============ duplicar / copiar / pegar ============
+       Portapapeles INTERNO (una variable): copiar aquí no debe pisar lo que el
+       usuario tenga en el portapapeles del sistema. */
+    const OFFSET = 0.30;
+    let buffer = null;                 // {kind, obj}
+
+    function listaDe(kind) {
+      return kind === 'wall' ? geom.walls : kind === 'window' ? geom.windows
+           : kind === 'slider' ? geom.sliders : kind === 'door' ? geom.doors
+           : kind === 'furn' ? geom.furniture : kind === 'label' ? geom.labels : null;
+    }
+    const PREFIJO = { wall: 'w', window: 'v', slider: 's', door: 'd', furn: 'f', label: 't' };
+
+    /* Clona con id nuevo y lo corre 30 cm. Un vano duplicado se queda en SU
+       mismo muro (moverlo fuera del muro no significaría nada). */
+    function clonaConOffset(kind, src) {
+      const c = JSON.parse(JSON.stringify(src));
+      c.id = nid(PREFIJO[kind] || 'x');
+      if (kind === 'wall') {
+        c.x1 = round2(c.x1 + OFFSET); c.x2 = round2(c.x2 + OFFSET);
+        c.y1 = round2(c.y1 + OFFSET); c.y2 = round2(c.y2 + OFFSET);
+      } else if (kind === 'furn' || kind === 'label') {
+        c.cx = round2(c.cx + OFFSET); c.cy = round2(c.cy + OFFSET);
+      } else if (kind === 'window' || kind === 'slider') {
+        c.a = round2(c.a + OFFSET); c.b = round2(c.b + OFFSET);
+      } else if (kind === 'door') {
+        if (c.wall === 'h') c.hx = round2(c.hx + OFFSET); else c.hy = round2(c.hy + OFFSET);
+      }
+      return c;
+    }
+    function inserta(kind, obj) {
+      const lista = listaDe(kind);
+      if (!lista) return null;
+      lista.push(obj);
+      if (kind !== 'wall' && kind !== 'furn' && kind !== 'label') clampVano(obj, muroDe(obj));
+      sel = { kind: kind, id: obj.id };
+      return obj;
+    }
+    function duplicateSel() {
+      if (!sel) return null;
+      const src = find(sel.kind, sel.id);
+      if (!src) return null;
+      pushHistory();
+      const nuevo = inserta(sel.kind, clonaConOffset(sel.kind, src));
+      save(); render();
+      return nuevo;
+    }
+    function copiarSel() {
+      if (!sel) return false;
+      const src = find(sel.kind, sel.id);
+      if (!src) return false;
+      buffer = { kind: sel.kind, obj: JSON.parse(JSON.stringify(src)) };
+      return true;
+    }
+    function pegarBuffer() {
+      if (!buffer) return null;
+      pushHistory();
+      const nuevo = inserta(buffer.kind, clonaConOffset(buffer.kind, buffer.obj));
+      // pegar dos veces seguidas no debe apilar copias en el mismo punto
+      if (nuevo) buffer.obj = JSON.parse(JSON.stringify(nuevo));
+      save(); render();
+      return nuevo;
+    }
 
     function rotateSel() { if (!sel || sel.kind !== 'furn') return; const o = find('furn', sel.id); if (!o) return; pushHistory(); o.rot = (((o.rot || 0) + 90) % 360); save(); render(); }
 
@@ -877,10 +1111,36 @@
       }
       const xa = document.getElementById('ed_delbtn');
       if (xa) xa.style.display = sel ? 'inline-flex' : 'none';
+      const du = document.getElementById('ed_dupbtn');
+      if (du) du.style.display = sel ? 'inline-flex' : 'none';
     }
 
     // ---- API pública ----
-    this.init = function () { load(); render(); document.addEventListener('keydown', onKey); document.addEventListener('keyup', onKeyUp); };
+    this.init = function () {
+      load(); render();
+      document.addEventListener('keydown', onKey);
+      document.addEventListener('keyup', onKeyUp);
+      // Imprimir tampoco debe llevarse la selección ni las manijas.
+      let selImpresion = null;
+      window.addEventListener('beforeprint', function () { selImpresion = sel; sel = null; renderNow(); });
+      window.addEventListener('afterprint',  function () { sel = selImpresion; renderNow(); });
+      // Las manijas miden en píxeles reales: si cambia el tamaño del lienzo,
+      // hay que recalcular K o quedan del tamaño de la sesión anterior.
+      window.addEventListener('resize', render);
+    };
+    this.duplicateSel = duplicateSel;
+    this.copySel = copiarSel;
+    this.pasteBuffer = pegarBuffer;
+    this.hasSel = () => !!sel;
+    this.getSel = () => (sel ? { kind: sel.kind, id: sel.id } : null);
+    // Seleccionar por código: lo usan las pruebas y las herramientas que crean
+    // un elemento y quieren dejarlo listo para editar (habitación, plantillas).
+    this.select = (kind, id) => {
+      const o = kind && id ? find(kind, id) : null;
+      sel = o ? { kind: kind, id: id } : null;
+      render();
+      return !!o;
+    };
     this.setSnap = (v) => { snap = v; render(); };
     this.setWallCm = (v) => { wallCm = v; geom.wallCm = v; save(); render(); };   // persiste: el resumen ya no miente al recargar
     this.setShowLen = (v) => { showLen = v; render(); };
@@ -905,7 +1165,12 @@
     // exportar el croquis como PNG (para compartir por WhatsApp)
     this.exportPNG = (cb) => {
       try {
+        // El PNG es lo que el usuario manda por WhatsApp: no debe salir con la
+        // selección terracota ni las manijas encima del dibujo.
+        const selPrevio = sel;
+        sel = null; renderNow();
         const svg = svgEl.cloneNode(true);
+        sel = selPrevio; renderNow();
         svg.setAttribute('viewBox', '0 0 ' + VW + ' ' + VH);
         svg.setAttribute('width', VW); svg.setAttribute('height', VH);
         const xml = new XMLSerializer().serializeToString(svg);

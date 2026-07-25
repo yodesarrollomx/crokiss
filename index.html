@@ -23,7 +23,7 @@
   .seg button{appearance:none;border:0;background:var(--paper);color:var(--ink);font-family:var(--fl);font-size:13px;padding:6px 11px;cursor:pointer;border-right:1px solid var(--line);}
   .seg button:last-child{border-right:0;}
   .seg button.on{background:var(--ink);color:var(--paper);}
-  .btn{appearance:none;font-family:var(--fl);font-size:13px;padding:7px 13px;border-radius:7px;border:1px solid var(--line);background:var(--paper);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
+  .btn{appearance:none;font-family:var(--fl);font-size:13px;padding:7px 13px;border-radius:7px;border:1px solid var(--line);background:var(--paper);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;white-space:nowrap;}
   .btn:hover{border-color:var(--ink);}
   .btn.primary{background:var(--ink);color:var(--paper);border-color:var(--ink);}
   .btn.warn{color:var(--accent);border-color:var(--accent);}
@@ -47,7 +47,8 @@
   #ed_widthacts{display:none;gap:7px;}
   #ed_wallacts{display:none;gap:7px;}
   #ed_furnacts{display:none;gap:7px;}
-  #ed_dooracts .btn,#ed_widthacts .btn,#ed_wallacts .btn,#ed_furnacts .btn,#ed_delbtn{padding:5px 10px;font-size:12px;background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.25);color:var(--paper);}
+  #ed_dupbtn{display:none;}
+  #ed_dooracts .btn,#ed_widthacts .btn,#ed_wallacts .btn,#ed_furnacts .btn,#ed_delbtn,#ed_dupbtn{padding:5px 10px;font-size:12px;background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.25);color:var(--paper);}
   #ed_delbtn{display:none;}
   /* paleta de muebles */
   .palette{position:fixed;top:130px;left:14px;width:182px;max-height:calc(100vh - 220px);overflow:auto;background:var(--paper);border:1px solid var(--line);border-radius:11px;box-shadow:0 10px 30px rgba(0,0,0,.14);padding:11px;z-index:40;transform:translateX(-115%);transition:transform .22s ease;}
@@ -109,6 +110,63 @@
   }
 .adv-hidden{display:none!important}
 #advToggle.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+/* ===== menú "⋯ Más" y barra táctil =====
+   En escritorio #masMenu es display:contents: sus botones se ven en línea,
+   como siempre. En móvil se convierte en un panel propio y el botón ⋯ Más
+   aparece. Nada de <details> nativos: no combinan con el lápiz de CroKiss. */
+/* En escritorio el envoltorio desaparece del acomodo (display:contents) para
+   que sus botones sean elementos normales de la barra; si fuera un bloque flex
+   se llevaría una fila entera para él solo. En móvil sí es un bloque, porque
+   necesita ser el ancla del menú desplegable. */
+.mas-wrap{display:contents;}
+#masBtn{display:none;}
+#masMenu{display:contents;}
+/* el doble toque no debe hacer zoom del navegador sobre los botones */
+.btn,.seg button,.ck-chip,.palette .pbtn{touch-action:manipulation;}
+/* etiquetas largas en escritorio, cortas en el teléfono */
+.solo-mov{display:none;}
+
+@media (max-width:640px){
+  .bar{gap:5px;row-gap:6px;padding:8px 8px;}
+  .bar .spacer{display:none;}   /* flex:1 empujaba todo a una fila nueva */
+  /* los grupos dejan de ser bloques atómicos: sus botones entran en el
+     acomodo de la barra y así todo cabe en 2 filas en un teléfono */
+  .bar .grp{display:contents;}
+  .bar .lbl{display:none;}                 /* las etiquetas de grupo no caben */
+  .brand{font-size:13px;letter-spacing:.5px;}
+  .brand small{display:none;}
+  .solo-esc{display:none;}
+  .solo-mov{display:inline;}
+  /* el pill dice el estado, no una frase: en 390 px se recorta con puntos */
+  .ck-pill{max-width:74px;overflow:hidden;text-overflow:ellipsis;font-size:10.5px;padding:4px 8px;}
+  .btn{padding:8px 9px;font-size:12px;gap:4px;}
+  /* dentro del menú el zoom vuelve a ser una fila normal con su etiqueta */
+  #masMenu .zoomgrp{display:flex;align-items:center;gap:6px;}
+  #masMenu .zoomgrp .lbl{display:inline;}
+  #masMenu .zoomgrp .btn{width:auto;}
+  .mas-wrap{display:flex;position:relative;align-items:center;gap:5px;}
+  #masBtn{display:inline-flex;}
+  #masMenu{
+    display:none;position:absolute;right:0;top:calc(100% + 9px);
+    flex-direction:column;align-items:stretch;gap:6px;min-width:206px;
+    background:var(--paper);border:1px solid var(--line);border-radius:12px;
+    box-shadow:0 14px 38px rgba(0,0,0,.2);padding:8px;z-index:70;
+  }
+  #masMenu.open{display:flex;}
+  #masMenu .btn{justify-content:flex-start;width:100%;padding:11px 12px;font-size:13.5px;}
+  .stage{padding:12px;}
+  .info{padding:8px 10px;gap:10px;font-size:12px;}
+  .info .hint{display:none;}
+  /* la paleta entra desde abajo como hoja: en 390 px ya no tapa el lienzo */
+  .palette{
+    top:auto;left:0;right:0;bottom:0;width:auto;max-width:none;
+    max-height:45vh;border-radius:14px 14px 0 0;border-left:0;border-right:0;border-bottom:0;
+    transform:translateY(105%);
+  }
+  .palette.open{transform:none;}
+  .palette .pgrid{grid-template-columns:repeat(3,1fr);}
+}
 </style>
 </head>
 <body>
@@ -147,45 +205,50 @@
 
     <div class="grp">
       <span class="lbl">Añadir</span>
-      <button class="btn" id="addWall">+ Muro</button>
-      <button class="btn" id="addWin">+ Ventana</button>
-      <button class="btn" id="addDoor">+ Puerta</button>
-      <button class="btn" id="addSld">+ Corrediza</button>
-      <button class="btn" id="furnBtn">🛋 Muebles</button>
-      <button class="btn" id="labelBtn">🔖 Etiqueta</button>
+      <button class="btn" id="addWall"><span class="solo-esc">+ </span>Muro</button>
+      <button class="btn" id="addWin"><span class="solo-esc">+ </span>Ventana</button>
+      <button class="btn" id="addDoor"><span class="solo-esc">+ </span>Puerta</button>
+      <button class="btn" id="addSld"><span class="solo-esc">+ </span>Corrediza</button>
+      <button class="btn" id="furnBtn" title="Muebles">🛋<span class="solo-esc"> Muebles</span></button>
+      <button class="btn" id="labelBtn" title="Etiqueta">🔖<span class="solo-esc"> Etiqueta</span></button>
     </div>
-
-    <button class="btn" id="advToggle" title="Mostrar opciones de obra (block, junta, refuerzos, espesor)">⚙ Avanzado</button>
 
     <div class="spacer"></div>
 
     <div class="grp">
       <span class="lbl">Proyecto</span>
-      <button class="btn primary" id="ckSaveBtn">💾 Guardar mi proyecto</button>
-      <button class="btn" id="ckOpenBtn">📂 Abrir con clave</button>
-      <button class="btn" id="ckNewBtn">✦ Nuevo</button>
-      <button class="btn" id="ckLogoutBtn" title="Olvidar tu clave en este navegador" style="display:none">⎋ Cerrar sesión</button>
+      <button class="btn primary" id="ckSaveBtn">💾 <span class="solo-esc">Guardar mi proyecto</span><span class="solo-mov">Guardar</span></button>
       <button class="btn primary" id="btnLamina" title="Tu plano como lámina profesional, lista para imprimir o PDF">📐 Lámina</button>
-      <button class="btn" id="btnFachadas" title="Mira las 4 fachadas y edita las alturas de tu proyecto">🏠 Fachadas</button>
-      <button class="btn" id="dlBtn">⬇ Respaldo</button>
-      <button class="btn" id="upBtn">⬆ Importar</button>
     </div>
     <input type="file" id="fileInput" accept="application/json,.json" style="display:none;">
 
-    <div class="grp">
-      <span class="lbl">Zoom</span>
-      <button class="btn" id="zoomOutBtn" title="Alejar">−</button>
-      <button class="btn" id="zoomFitBtn" title="Ver todo el terreno">⤢ Ajustar</button>
-      <button class="btn" id="zoomInBtn" title="Acercar">+</button>
-      <button class="btn" id="panBtn" title="Mover el plano (o mantén Espacio y arrastra). Ctrl/⌘ + rueda para zoom.">✋ Mover</button>
-    </div>
+    <button class="btn" id="undoBtn" title="Deshacer">↶<span class="solo-esc"> Deshacer</span></button>
 
-    <button class="btn" id="undoBtn">↶ Deshacer</button>
-    <button class="btn" id="redoBtn">↷ Rehacer</button>
-    <button class="btn primary" id="pngBtn">🖼 Imagen (PNG)</button>
-    <button class="btn" id="copyBtn">⧉ Copiar resumen</button>
-    <button class="btn" id="printBtn">⎙ Imprimir hoja</button>
-    <a class="btn adv-hidden" id="toPlanBtn" href="Planta Arquitectonica.html" style="text-decoration:none;">Ver plano final →</a>
+    <!-- Acciones secundarias. En escritorio se ven en línea (display:contents);
+         en móvil se colapsan en este menú para que la barra no coma el lienzo. -->
+    <div class="mas-wrap">
+      <button class="btn" id="masBtn" aria-expanded="false" title="Más acciones">⋯ Más</button>
+      <div id="masMenu">
+        <span class="grp zoomgrp">
+          <span class="lbl">Zoom</span>
+          <button class="btn" id="zoomOutBtn" title="Alejar">−</button>
+          <button class="btn" id="zoomFitBtn" title="Ver todo el terreno">⤢ Ajustar</button>
+          <button class="btn" id="zoomInBtn" title="Acercar">+</button>
+          <button class="btn" id="panBtn" title="Mover el plano (o mantén Espacio y arrastra). Ctrl/⌘ + rueda para zoom.">✋ Mover</button>
+        </span>
+        <button class="btn" id="advToggle" title="Mostrar opciones de obra (block, junta, refuerzos, espesor)">⚙ Avanzado</button>
+        <button class="btn primary" id="pngBtn">🖼 Imagen (PNG)</button>
+        <button class="btn" id="redoBtn">↷ Rehacer</button>
+        <button class="btn" id="btnFachadas" title="Mira las 4 fachadas y edita las alturas de tu proyecto">🏠 Fachadas</button>
+        <button class="btn" id="ckOpenBtn">📂 Abrir con clave</button>
+        <button class="btn" id="ckNewBtn">✦ Nuevo</button>
+        <button class="btn" id="ckLogoutBtn" title="Olvidar tu clave en este navegador" style="display:none">⎋ Cerrar sesión</button>
+        <button class="btn" id="dlBtn">⬇ Respaldo</button>
+        <button class="btn" id="upBtn">⬆ Importar</button>
+        <button class="btn" id="copyBtn">⧉ Copiar resumen</button>
+        <button class="btn" id="printBtn">⎙ Imprimir hoja</button>
+      </div>
+    </div>
   </div>
 
   <div class="stage">
@@ -219,6 +282,7 @@
       <span class="lbl" style="color:#b9b4a8">cm</span>
       <button class="btn" id="rotBtn">↻ Girar 90°</button>
     </div>
+    <button class="btn" id="ed_dupbtn" title="Duplicar lo seleccionado (Ctrl/⌘+D)">⧉ Duplicar</button>
     <button class="btn" id="ed_delbtn">✕ Borrar</button>
     <span class="spacer"></span>
     <span class="hint">Toca un elemento para seleccionarlo · arrastra para mover · esquina = escalar · ↻ Girar · ✕ Borrar · pellizca con 2 dedos para zoom</span>
@@ -377,6 +441,7 @@
   document.getElementById('hingeBtn').addEventListener('click', ed.flipHinge);
   document.getElementById('swingBtn').addEventListener('click', ed.flipSwing);
   document.getElementById('ed_delbtn').addEventListener('click', ed.delSel);
+  document.getElementById('ed_dupbtn').addEventListener('click', () => { if (ed.duplicateSel()) toast('Duplicado — arrástralo a su lugar'); });
   document.getElementById('narrowBtn').addEventListener('click', () => ed.widen(-0.10));
   document.getElementById('widenBtn').addEventListener('click', () => ed.widen(0.10));
   function setTool(btnId){ ['addWall','addWin','addDoor','addSld'].forEach(function(id){ document.getElementById(id).classList.toggle('on', id===btnId); }); }
@@ -451,6 +516,21 @@
     try { await navigator.clipboard.writeText(txt); toast('Resumen copiado'); }
     catch(e){ const ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); toast('Resumen copiado'); }
   });
+
+  // ---- menú "⋯ Más" (solo se ve en móvil; en escritorio los botones van en línea) ----
+  (function(){
+    var b = document.getElementById('masBtn'), m = document.getElementById('masMenu');
+    function cerrar(){ m.classList.remove('open'); b.setAttribute('aria-expanded','false'); }
+    b.addEventListener('click', function(e){
+      e.stopPropagation();
+      var abierto = m.classList.toggle('open');
+      b.setAttribute('aria-expanded', abierto ? 'true' : 'false');
+    });
+    // al elegir una acción el menú se cierra solo; también al tocar fuera o con Esc
+    m.addEventListener('click', function(e){ if (e.target.closest('.btn')) cerrar(); });
+    document.addEventListener('click', function(e){ if (!e.target.closest('.mas-wrap')) cerrar(); });
+    document.addEventListener('keydown', function(e){ if (e.key === 'Escape') cerrar(); });
+  })();
 
   // ---- ojo para revelar la clave (los campos nacen ocultos) ----
   document.addEventListener('click', function (e) {
