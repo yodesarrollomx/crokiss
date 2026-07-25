@@ -1,3 +1,9 @@
 REVISION-2026-06-09.md
 REVISION-2026-06-09-anexos.md
 lamina-preview.png
+
+# jsdom es una herramienta SOLO de pruebas: la app en producción sigue
+# siendo HTML/CSS/JS puro, sin build y sin dependencias.
+node_modules/
+package.json
+package-lock.json

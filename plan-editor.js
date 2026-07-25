@@ -18,6 +18,8 @@
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmt = (v) => round2(v).toFixed(2);
   const DEF_BLOCK_LEN = 0.40, DEF_JOINT = 0.01;   // block 40 cm, junta 1 cm (por defecto)
+  // alturas por defecto del proyecto (esquema unificado geom.elev; override opcional por vano en vano.z)
+  const DEF_ELEV = { hMuro: 2.40, antepecho: 0.90, dintel: 2.10, cubierta: 'losa', pretil: 0.35 };
 
   // ---------- geometría inicial (clon de PlanRender) ----------
   function defaultGeom() {
@@ -77,6 +79,18 @@
       geom.furniture.forEach((f) => { f.id = cleanId(f.id) || nid('f'); f.type = cleanId(f.type) || 'mesa'; f.cx = fin(f.cx, 0); f.cy = fin(f.cy, 0); f.w = Math.max(0.10, fin(f.w, 1)); f.h = Math.max(0.10, fin(f.h, 1)); f.rot = fin(f.rot, 0); });
       geom.labels = geom.labels.filter((l) => l && isFinite(l.cx) && isFinite(l.cy));
       geom.labels.forEach((l) => { l.id = cleanId(l.id) || nid('t'); l.text = String(l.text == null ? '' : l.text).slice(0, 40); });
+      // espesor y alturas viajan DENTRO del geom: la lámina y las fachadas los leen,
+      // y el resumen ya no miente al recargar (los lee plan-sheet.js / plan-elev.js)
+      if (typeof geom.wallCm !== 'number') geom.wallCm = wallCm;
+      const e = geom.elev || {};
+      geom.elev = {
+        hMuro:     typeof e.hMuro     === 'number' ? e.hMuro     : DEF_ELEV.hMuro,
+        antepecho: typeof e.antepecho === 'number' ? e.antepecho : DEF_ELEV.antepecho,
+        dintel:    typeof e.dintel    === 'number' ? e.dintel    : DEF_ELEV.dintel,
+        cubierta:  e.cubierta || DEF_ELEV.cubierta,
+        pretil:    typeof e.pretil    === 'number' ? e.pretil    : DEF_ELEV.pretil
+      };
+      wallCm = geom.wallCm;             // la vista sigue al proyecto (también tras deshacer/rehacer)
       geom.schemaVersion = 1;
     }
 
@@ -802,6 +816,8 @@
     function summary() {
       let s = 'CROQUIS — CroKiss · Aurum Arquitectos (medidas en metros)\n';
       s += 'Espesor de muro: ' + wallCm + ' cm\n';
+      const ev = geom.elev || DEF_ELEV;
+      s += 'Alturas: muro ' + fmt(ev.hMuro) + ' m · antepecho ' + fmt(ev.antepecho) + ' m · dintel ' + fmt(ev.dintel) + ' m · cubierta ' + ev.cubierta + '\n';
       s += 'Huella (bbox): ' + fmt(bounds().maxX) + ' × ' + fmt(bounds().maxY) + ' m\n\n';
       s += 'MUROS [tipo  (x1,y1)→(x2,y2)  long]:\n';
       geom.walls.forEach((w, i) => { s += `  ${i + 1}. ${w.type}  (${fmt(w.x1)},${fmt(w.y1)})→(${fmt(w.x2)},${fmt(w.y2)})  L=${fmt(wallLen(w))}\n`; });
@@ -866,7 +882,7 @@
     // ---- API pública ----
     this.init = function () { load(); render(); document.addEventListener('keydown', onKey); document.addEventListener('keyup', onKeyUp); };
     this.setSnap = (v) => { snap = v; render(); };
-    this.setWallCm = (v) => { wallCm = v; render(); };
+    this.setWallCm = (v) => { wallCm = v; geom.wallCm = v; save(); render(); };   // persiste: el resumen ya no miente al recargar
     this.setShowLen = (v) => { showLen = v; render(); };
     this.undo = undo;
     this.reset = reset;
@@ -914,6 +930,24 @@
     this.setFurnH = (cm) => { const o = find('furn', sel && sel.id); if (!o) return; pushHistory(); o.h = Math.max(0.10, round2((parseFloat(cm) || 0) / 100)); save(); render(); };
     this.getSelFurni = () => { const o = find('furn', sel && sel.id); return o ? { w: Math.round(o.w * 100), h: Math.round(o.h * 100) } : null; };
     this.getGeom = () => geom;
+    this.getWallCm = () => wallCm;
+    this.setSheet = (sheet) => { geom.sheet = sheet; save(); };   // preferencias de lámina, persistidas
+    // alturas del proyecto y overrides por vano (editor de fachadas):
+    // pasan por pushHistory para entrar al deshacer normal
+    this.updateElev = (patch) => {
+      pushHistory();
+      geom.elev = geom.elev || {};
+      Object.assign(geom.elev, patch || {});
+      if (typeof geom.elev.pretil !== 'number') geom.elev.pretil = DEF_ELEV.pretil;
+      save(); render();
+    };
+    this.updateVanoZ = (kind, id, zPatch) => {
+      const o = find(kind, id); if (!o) return false;
+      pushHistory();
+      if (zPatch == null) delete o.z;                 // null = volver a las alturas del proyecto
+      else o.z = Object.assign({}, o.z || {}, zPatch);
+      save(); render(); return true;
+    };
     this.exportJSON = () => JSON.stringify(geom, null, 2);
     this.loadGeom = (obj) => {
       if (!obj || !Array.isArray(obj.walls)) return false;

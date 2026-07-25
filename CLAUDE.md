@@ -2,9 +2,29 @@
 
 Editor de planos 2D embebible (muros, ventanas, puertas, corredizas, muebles, etiquetas de espacio) que parte del tamaño del terreno. Herramienta pública y gratuita embebida en el portal de Yodesarrollo; imán de prospectos para Aurum/Yodesarrollo: al guardar, el usuario deja correo + clave y recibe su plano por correo con enlace para volver. Cada guardado = un lead. Métrica de uso = correos distintos.
 
-## Estado actual (2026-07)
+## Estado actual (2026-07-25) — CK_VERSION `2026-07-25`
 
-Core funcional de punta a punta y publicado. En esta ronda pasó por una auditoría de 3 expertos (UX/producto, ingeniería frontend, backend/seguridad) y se implementó una "super mejora" (front desplegado; backend endurecido listo para re-desplegar).
+Core funcional de punta a punta y publicado, con la "super mejora" (auditoría de 3 expertos) **y** la lámina/fachadas de junio, que estuvieron desconectadas y **volvieron en este rescate (P0)**.
+
+`index.html` declara `CK_VERSION` (visible en el `title` del logo y en `window.CK_VERSION`): **súbela en cada despliegue** para saber siempre qué corre en producción.
+
+### ⚠️ Regla de oro del repo: NUNCA desplegar desde zips
+
+Los commits `dcbd102` y `975b699` se construyeron desde copias/zips viejos en vez de sobre `main`, y **sepultaron trabajo ya terminado tres veces**:
+
+1. `dcbd102` subió un `index.html` de un zip anterior a `7be88d8` → se cayeron los `<script>` de `plan-sheet.js`/`plan-elev.js`/`plan-elev-editor.js` y los botones de Lámina/Fachadas. Los archivos seguían en el repo, pero **nada los cargaba**.
+2. La reescritura de `plan-editor.js` borró los hooks que esas piezas necesitan (`setSheet`, `updateElev`, `updateVanoZ`) y la persistencia de `geom.wallCm` / `geom.elev`.
+3. `975b699` revirtió **byte a byte** el hasheo SHA-256 de `ec6d029`: el `Code.gs` de `main` volvió a ser idéntico al de `dcbd102`.
+
+**Siempre:** `git pull` → editar sobre el árbol de trabajo → `git commit` → `git push`. Nunca reconstruir un archivo desde una descarga y subirlo encima. Si un archivo "se ve viejo", compáralo con `git show <commit>:<archivo>` antes de sobrescribirlo.
+
+### Rescate P0 (2026-07-25)
+
+- Reintegrados los 3 `<script>` de lámina/fachadas sobre el `index.html` actual, **sin perder nada de la super mejora**.
+- Botones **📐 Lámina** y **🏠 Fachadas** en la barra, visibles (no dentro de ⚙ Avanzado).
+- Restaurados en `plan-editor.js`: `setSheet`, `updateElev`, `updateVanoZ`, `getWallCm`, `DEF_ELEV`, y la persistencia de `geom.wallCm`/`geom.elev` en `normalize()` (así sobreviven a deshacer/rehacer). El resumen vuelve a reportar alturas.
+- La barra sincroniza el espesor con el del proyecto al arrancar (antes mostraba un "20 cm" fijo aunque el plano fuera otro).
+- Harness jsdom nuevo en `pruebas/harness.js`: **62 pruebas verdes**.
 
 ## Super mejora 2026-07 (implementada y validada con 35 pruebas jsdom)
 
@@ -43,7 +63,7 @@ Core funcional de punta a punta y publicado. En esta ronda pasó por una auditor
 
 ## Pendiente (backend, para segunda ronda — NO shippeado por riesgo)
 
-- **Hasheo de la clave**: hoy se guarda/transmite en claro. Recomendado AGREGAR columnas `clave_hash`+`salt` (SHA-256 con `Utilities.computeDigest`), con fallback a texto plano para no dejar fuera a usuarios existentes. No se activó en esta ronda porque cambia la autenticación y no se puede probar sin el runtime de Apps Script; hacerlo mal bloquea a los leads que regresan. Implementar y probar con una cuenta de prueba antes de activar.
+- **Hasheo de la clave**: hoy se guarda/transmite en claro. ⚠️ **Ya se implementó una vez** (columnas `clave_hash`+`salt`, SHA-256 con `Utilities.computeDigest`, fallback y migración) en el commit **`ec6d029`**, y `975b699` lo revirtió por accidente al subir un `Code.gs` viejo. **No lo reescribas desde cero:** parte de `git show ec6d029:Code.gs` y fusiónalo sobre el `Code.gs` actual. Sigue pendiente probarlo con una cuenta de prueba antes de activar: hacerlo mal bloquea a los leads que regresan.
 - Poda del Historial (crece sin tope) e índice `plan_id→fila` para evitar el escaneo lineal a escala.
 - Respaldo diario de la hoja + alerta al acercarse a la cuota de correo.
 
@@ -58,13 +78,26 @@ Frontend estático HTML/CSS/JS puro + SVG (sin framework, sin build) en GitHub P
 | `index.html` | Editor (barra Cliente/Avanzado, lienzo, modales, zoom/pan, campos de mueble, PNG/Etiqueta/Rehacer); carga scripts y llama `CroKiss.boot(ed)` |
 | `crokiss-cloud.js` | Adaptador de nube: offline-first, sync con backoff, sendBeacon, identidad correo+clave, nudge, pantalla de éxito. Contiene `CONFIG.ENDPOINT` y `CONFIG.CONTACT_URL` |
 | `Code.gs` | Backend endurecido: doGet list/plan/ping, doPost save/sync, correo con throttle, antiinyección, anti-abuso. Contiene `CONFIG.SITE_BASE` |
-| `plan-editor.js` | Motor: geometría, render SVG, interacción, snap, undo/redo, zoom/pinch/pan, muebles, etiquetas, PNG. Expone `getGeom()`/`loadGeom()` |
+| `plan-editor.js` | Motor: geometría, render SVG, interacción, snap, undo/redo, zoom/pinch/pan, muebles, etiquetas, PNG. Expone `getGeom()`/`loadGeom()` y los hooks de lámina/fachadas (`setSheet`, `updateElev`, `updateVanoZ`, `getWallCm`) |
+| `plan-sheet.js` | **Lámina de 2 páginas** (pág. 1 planta a mejor escala; pág. 2 las 4 fachadas en rejilla a escala común) + cajetín Aurum; overlay `#ck_lamina` y `window.print()` con salto de página. API: `open(ed)`, `_buildPages`, `_buildSheet`, `setElevProvider` |
+| `plan-elev.js` | **Fachadas de las 4 orientaciones**: `facade(geom, dir, opts?)` con dir S/N/E/O, envolvente exterior, fusión de muros casi-colineales, recorte al terreno; devuelve `stats` y `avisos` |
+| `plan-elev-editor.js` | **Editor de fachadas** (`PlanElevEditor.open(ed)`, overlay `#ck_elevedit`): pestañas por orientación, alturas del proyecto (`ed.updateElev`) y override por vano (`ed.updateVanoZ`) |
 | `plan-render.js` | (Proyecto Marbel, sin cambios) geometría de muestra |
 | `plan-furniture.js` | Catálogo `PlanFurniture.CATALOG` y `PlanFurniture.draw()` (ampliado) |
+| `pruebas/harness.js` | Harness jsdom (solo pruebas, no se despliega) |
 
 ## Validación
 
-Harness jsdom: 19 pruebas de motor (saneo/clamp anti-cuelgue, XSS neutralizado, undo/redo, aislamiento de historial entre proyectos, API nueva) + 16 de integración (arranque sin errores, UI Cliente/Avanzado, marketing opt-in, "Ver plano final" oculto, catálogo, boot de nube). Correr con node+jsdom antes de cada entrega.
+**Antes de cada entrega:** `node --check` a los 7 `.js` + el harness jsdom (`pruebas/harness.js`, 62 pruebas) + verificación EN PRODUCCIÓN con cache-bust (`?cb=<timestamp>`).
+
+jsdom es dependencia **solo de pruebas** (la app sigue sin build ni dependencias; `node_modules/` y `package.json` están en `.gitignore`):
+
+```bash
+mkdir -p /tmp/ck && cd /tmp/ck && npm init -y && npm i jsdom
+cd ~/crokiss && NODE_PATH=/tmp/ck/node_modules node pruebas/harness.js
+```
+
+Cubre: los 8 scripts cargan, cero errores de JS al arrancar, la super mejora intacta (`advToggle`, `pngBtn`, `redoBtn`, `labelBtn`, zoom/pan), los hooks del motor, persistencia de `wallCm`/`elev`, y que los botones de **Lámina** y **Fachadas** existen y **su handler realmente corre** (construyen `#ck_lamina` y `#ck_elevedit`). El harness bloquea la red: **jamás** debe tocar el `/exec` de producción (cada guardado es un lead real).
 
 ## URLs y datos
 
@@ -88,6 +121,9 @@ Harness jsdom: 19 pruebas de motor (saneo/clamp anti-cuelgue, XSS neutralizado, 
 4. Historial solo en guardado explícito; Planos en filas.
 5. Sin secretos en el front (endpoint público a propósito); seguridad reforzada del lado del backend.
 6. Terreno = 4 muros perimetrales vía `loadGeom()`.
+7. **Nunca desplegar desde zips ni copias descargadas — siempre `git pull` → editar → `commit` → `push`.** Ya costó tres regresiones (ver Estado actual).
+8. La lámina es el único camino al entregable: `plan-sheet.js` no reconstruye `Planta Arquitectonica.html` (eliminado del flujo, su botón estaba roto).
+9. Espesor y alturas viven DENTRO del `geom` (`geom.wallCm`, `geom.elev`), no en variables sueltas: así viajan a la nube, sobreviven a deshacer/rehacer y la lámina/fachadas leen la verdad del proyecto.
 
 ## Preferencias de trabajo
 

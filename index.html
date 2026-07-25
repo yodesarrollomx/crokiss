@@ -109,7 +109,7 @@
 <body>
 <div class="app">
   <div class="bar">
-    <div class="brand">Cro<span style="color:var(--accent)">&middot;</span>Kiss<small>POR AURUM ARQUITECTOS</small></div>
+    <div class="brand" id="ck_brand">Cro<span style="color:var(--accent)">&middot;</span>Kiss<small>POR AURUM ARQUITECTOS</small></div>
     <span id="ck_status" class="ck-pill">Borrador local</span>
 
     <div class="grp adv">
@@ -159,6 +159,8 @@
       <button class="btn primary" id="ckSaveBtn">💾 Guardar mi proyecto</button>
       <button class="btn" id="ckOpenBtn">📂 Abrir con clave</button>
       <button class="btn" id="ckNewBtn">✦ Nuevo</button>
+      <button class="btn primary" id="btnLamina" title="Tu plano como lámina profesional, lista para imprimir o PDF">📐 Lámina</button>
+      <button class="btn" id="btnFachadas" title="Mira las 4 fachadas y edita las alturas de tu proyecto">🏠 Fachadas</button>
       <button class="btn" id="dlBtn">⬇ Respaldo</button>
       <button class="btn" id="upBtn">⬆ Importar</button>
     </div>
@@ -288,13 +290,28 @@
 <script src="plan-render.js"></script>
 <script src="plan-furniture.js"></script>
 <script src="plan-editor.js"></script>
+<script src="plan-sheet.js"></script>
+<script src="plan-elev.js"></script>
+<script src="plan-elev-editor.js"></script>
 <script src="crokiss-cloud.js"></script>
 <script>
+  // Versión desplegada: pasa el cursor por el logo (o lee window.CK_VERSION en la consola)
+  // para saber SIEMPRE qué corre en producción. Súbela en cada despliegue.
+  const CK_VERSION = '2026-07-25';
+  window.CK_VERSION = CK_VERSION;
+  document.getElementById('ck_brand').title = 'CroKiss · versión ' + CK_VERSION;
+
   const ed = new PlanEditor('editor');
   ed.init();
   // sincronizar inputs de block con lo guardado
   document.getElementById('blkLen').value = ed.getBlockLen();
   document.getElementById('blkJoint').value = ed.getJoint();
+  // el espesor viaja en el geom: la barra debe mostrar el del proyecto, no un 20 fijo
+  if (ed.getWallCm) {
+    const w0 = ed.getWallCm();
+    document.getElementById('wallRange').value = w0;
+    document.getElementById('wallVal').textContent = w0 + ' cm';
+  }
   ed.setBlockMode(document.getElementById('blockTog').checked);   // por defecto: muro sólido (más simple para el cliente)
 
   // snap segmented
@@ -313,6 +330,13 @@
   document.getElementById('blkLen').addEventListener('change', (e) => { const v = parseFloat(e.target.value) || 40; ed.setBlockLen(v); });
   document.getElementById('blkJoint').addEventListener('change', (e) => { const v = parseFloat(e.target.value); ed.setJoint(isNaN(v) ? 1 : v); });
   document.getElementById('printBtn').addEventListener('click', () => window.print());
+  // lámina de 2 páginas y editor de fachadas (plan-sheet.js / plan-elev.js / plan-elev-editor.js)
+  document.getElementById('btnLamina').addEventListener('click', () => {
+    if (window.PlanSheet) PlanSheet.open(ed); else toast('La lámina no está disponible ahora mismo');
+  });
+  document.getElementById('btnFachadas').addEventListener('click', () => {
+    if (window.PlanElevEditor) PlanElevEditor.open(ed); else toast('Las fachadas no están disponibles ahora mismo');
+  });
   // botones
   document.getElementById('undoBtn').addEventListener('click', ed.undo);
   document.getElementById('redoBtn').addEventListener('click', ed.redo);
