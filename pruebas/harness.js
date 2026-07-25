@@ -458,6 +458,88 @@ async function main() {
   $('ck_g_close').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
   ok(/puedes cambiarla/.test(html), 'el modal avisa que la clave es editable');
 
+  /* --- P5: alma artesanal I --- */
+  grupo('Alma artesanal I (P5)');
+
+  // cero prompt()/confirm() en TODO el código que se despliega
+  const desplegados = ['index.html', 'plan-editor.js', 'crokiss-cloud.js',
+                       'plan-sheet.js', 'plan-elev.js', 'plan-elev-editor.js', 'plan-furniture.js'];
+  const sospechosos = [];
+  desplegados.forEach((f) => {
+    // se quitan comentarios (HTML, /* */ y //) para no contar los que solo
+    // MENCIONAN prompt/confirm al explicar por qué ya no se usan
+    const txt = fs.readFileSync(path.join(RAIZ, f), 'utf8')
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1');
+    txt.split('\n').forEach((linea, i) => {
+      if (/(^|[^.\w])(prompt|confirm)\s*\(/.test(linea)) sospechosos.push(f + ':' + (i + 1) + ' → ' + linea.trim().slice(0, 60));
+    });
+  });
+  ok(sospechosos.length === 0, 'cero prompt()/confirm() en el código desplegado', sospechosos.join(', '));
+
+  // mini-modal de etiquetas con chips
+  ok(!!$('ck_modal_etiqueta'), 'existe el mini-modal de etiquetas');
+  const chips = doc.querySelectorAll('#ck_et_chips [data-t]');
+  ok(chips.length === 7, 'trae los 7 espacios de un tap', 'chips=' + chips.length);
+  ok([...chips].map((c) => c.getAttribute('data-t')).join(',') ===
+     'Recámara,Cocina,Baño,Sala,Comedor,Patio,Cochera', 'con los nombres acordados');
+  ok(typeof win.pedirEtiqueta === 'function', 'pedirEtiqueta() está disponible para el motor');
+  ok(!!$('ck_modal_nuevo'), '"✦ Nuevo" tiene su propio modal');
+
+  // un chip resuelve la promesa
+  const promesa = win.pedirEtiqueta('¿Qué espacio es?', '');
+  ok(!$('ck_modal_etiqueta').hasAttribute('hidden'), 'el modal se abre al pedir una etiqueta');
+  doc.querySelector('#ck_et_chips [data-t="Cocina"]').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+  const elegido = await promesa;
+  ok(elegido === 'Cocina', 'un tap en el chip devuelve el nombre', String(elegido));
+  ok($('ck_modal_etiqueta').hasAttribute('hidden'), 'y cierra el modal');
+
+  // herramienta Habitación
+  ok(!!$('addRoom'), 'existe el botón + Habitación');
+  ok(typeof ed.placeRoom === 'function', 'ed.placeRoom() es pública');
+  const fuente5 = fs.readFileSync(path.join(RAIZ, 'plan-editor.js'), 'utf8');
+  ok(/function crearHabitacion/.test(fuente5), 'la habitación se construye con 4 muros + etiqueta');
+  ok(/\(x2 - x1\) < 1 \|\| \(y2 - y1\) < 1/.test(fuente5), 'los rectángulos de menos de 1×1 m se descartan');
+  ok(/type: 'int'/.test(fuente5), 'y son muros interiores normales (el geom no gana conceptos nuevos)');
+
+  // cotas editables
+  ok(/function abreCota/.test(fuente5), 'existe el editor de cota flotante');
+  ok(/data-cota/.test(fuente5), 'la cota del muro seleccionado es tocable');
+  ok(/o\.a = round2\(c - medida \/ 2\)/.test(fuente5), 'el ancho de ventana recrece CENTRADO, como widen');
+  ok(/inp\.addEventListener\('keydown'/.test(fuente5) && /e\.key === 'Escape'/.test(fuente5),
+     'Enter aplica y Esc cancela');
+
+  // nota de lápiz dentro del lienzo
+  ok(/function notaInicial/.test(fuente5), 'hay nota de arranque dentro del lienzo');
+  ok(/Toca \+ Muro y arrastra/.test(fuente5), 'con el texto que dice qué hacer');
+  ok(/'pointer-events': 'none'/.test(fuente5), 'y no estorba al primer trazo');
+
+  // vibración con guard
+  ok(/if \(navigator\.vibrate\) navigator\.vibrate\(8\)/.test(fuente5),
+     'vibra al caer en snap, con guard de existencia');
+
+  // paleta se cierra sola y entra desde abajo en móvil
+  ok(/palette'\)\.classList\.remove\('open'\)/.test(html), 'la paleta se cierra al elegir mueble');
+
+  // mini-preview del lote
+  ok(!!$('ck_lote_prev'), 'el modal de terreno tiene su mini-vista del lote');
+  const cloud5 = fs.readFileSync(path.join(RAIZ, 'crokiss-cloud.js'), 'utf8');
+  ok(/function dibujaLote/.test(cloud5), 'y se redibuja al teclear');
+  $('ck_ancho').value = '12'; $('ck_fondo').value = '30';
+  $('ck_ancho').dispatchEvent(new win.Event('input', { bubbles: true }));
+  ok(/<svg/.test($('ck_lote_prev').innerHTML), 'la vista previa dibuja el lote');
+  ok(/360/.test($('ck_lote_prev').innerHTML), 'y muestra la superficie (12 × 30 = 360 m²)');
+
+  // micro-entradas SOLO fuera del SVG
+  ok(/@keyframes ck-in/.test(html) && /\.ck-overlay:not\(\[hidden\]\) \.ck-modal\{animation:ck-in/.test(html),
+     'los modales entran con fade+scale');
+  ok(/@keyframes ck-pulso/.test(html) && /\.btn\.on\{animation:ck-pulso/.test(html),
+     'la herramienta activa pulsa mientras espera');
+  ok(/prefers-reduced-motion/.test(html), 'y todo se apaga con prefers-reduced-motion');
+  ok(!/<animate|@keyframes[^}]*svg/i.test(fuente5) && !/transition/.test(fuente5),
+     'NADA se anima dentro del SVG (el lienzo es papel)');
+
   /* --- versión visible --- */
   grupo('Versión desplegada');
   ok(/^\d{4}-\d{2}-\d{2}$/.test(String(win.CK_VERSION || '')), 'CK_VERSION tiene formato YYYY-MM-DD',

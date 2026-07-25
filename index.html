@@ -108,6 +108,22 @@
     .sheet{box-shadow:none;border:0;width:100%;}
     @page{size:landscape;margin:10mm;}
   }
+/* ===== micro-entradas: SOLO en superficies de UI, JAMÁS dentro del SVG =====
+   El lienzo es papel: ahí nada se mueve solo. Los modales, el nudge, la
+   pantalla de éxito y el toast sí pueden entrar con suavidad. */
+@keyframes ck-in{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+.ck-overlay:not([hidden]) .ck-modal{animation:ck-in 170ms ease-out both;}
+#ck_nudge,#ck_success>div{animation:ck-in 180ms ease-out both;}
+.toast{transition:opacity .25s ease, transform .18s ease;}
+.toast.show{transform:translateX(-50%) translateY(0);}
+.toast:not(.show){transform:translateX(-50%) translateY(6px);}
+/* pulso suave de la herramienta activa mientras esperas a que toque el lienzo */
+@keyframes ck-pulso{0%,100%{box-shadow:0 0 0 0 rgba(199,91,57,.45)}50%{box-shadow:0 0 0 6px rgba(199,91,57,0)}}
+.btn.on{animation:ck-pulso 1.5s ease-in-out infinite;}
+@media (prefers-reduced-motion: reduce){
+  .ck-overlay:not([hidden]) .ck-modal,#ck_nudge,#ck_success>div,.btn.on{animation:none;}
+}
+
 .adv-hidden{display:none!important}
 #advToggle.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 
@@ -209,6 +225,7 @@
       <button class="btn" id="addWin"><span class="solo-esc">+ </span>Ventana</button>
       <button class="btn" id="addDoor"><span class="solo-esc">+ </span>Puerta</button>
       <button class="btn" id="addSld"><span class="solo-esc">+ </span>Corrediza</button>
+      <button class="btn" id="addRoom" title="Arrastra un rectángulo y salen sus 4 muros"><span class="solo-esc">+ </span>Habitación</button>
       <button class="btn" id="furnBtn" title="Muebles">🛋<span class="solo-esc"> Muebles</span></button>
       <button class="btn" id="labelBtn" title="Etiqueta">🔖<span class="solo-esc"> Etiqueta</span></button>
     </div>
@@ -298,6 +315,7 @@
       <div class="ck-field"><label>Ancho (m)</label><input type="text" id="ck_ancho" inputmode="decimal" value="10"></div>
       <div class="ck-field"><label>Fondo (m)</label><input type="text" id="ck_fondo" inputmode="decimal" value="20"></div>
     </div>
+    <div id="ck_lote_prev" style="display:flex;justify-content:center;margin:2px 0 14px"></div>
     <div class="ck-presets" id="ck_presets">
       <button class="ck-chip" data-w="9"  data-d="20">9 × 20</button>
       <button class="ck-chip" data-w="10" data-d="20">10 × 20</button>
@@ -360,6 +378,42 @@
   </div>
 </div>
 
+<!-- Mini-modal de etiquetas: sustituye al prompt() del navegador, que era el
+     único momento en que CroKiss dejaba de parecer CroKiss. Un tap en un chip
+     basta; el campo libre queda para lo que no esté en la lista. -->
+<div class="ck-overlay" id="ck_modal_etiqueta" hidden>
+  <div class="ck-modal" role="dialog" aria-modal="true" aria-label="Nombre del espacio">
+    <h3 id="ck_et_titulo">¿Qué espacio es? <span class="accent">·</span></h3>
+    <p class="sub">Toca uno o escribe el tuyo.</p>
+    <div class="ck-presets" id="ck_et_chips">
+      <button class="ck-chip" data-t="Recámara">Recámara</button>
+      <button class="ck-chip" data-t="Cocina">Cocina</button>
+      <button class="ck-chip" data-t="Baño">Baño</button>
+      <button class="ck-chip" data-t="Sala">Sala</button>
+      <button class="ck-chip" data-t="Comedor">Comedor</button>
+      <button class="ck-chip" data-t="Patio">Patio</button>
+      <button class="ck-chip" data-t="Cochera">Cochera</button>
+    </div>
+    <div class="ck-field"><label>O escríbelo</label><input type="text" id="ck_et_texto" placeholder="Estudio, Bodega…" maxlength="40" autocomplete="off"></div>
+    <div class="ck-actions">
+      <a class="ck-link" id="ck_et_close">Cancelar</a>
+      <button class="btn primary" id="ck_et_go">Listo →</button>
+    </div>
+  </div>
+</div>
+
+<!-- "✦ Nuevo" con la voz de CroKiss en vez del confirm() del navegador -->
+<div class="ck-overlay" id="ck_modal_nuevo" hidden>
+  <div class="ck-modal" role="dialog" aria-modal="true" aria-label="Empezar de nuevo">
+    <h3>¿Empezar otro croquis?</h3>
+    <p class="sub">El que tienes ahora se queda en la pantalla hasta que lo reemplaces. Si quieres conservarlo, <b>guárdalo con tu clave</b> antes de seguir.</p>
+    <div class="ck-actions">
+      <a class="ck-link" id="ck_nv_close">Mejor no</a>
+      <button class="btn primary" id="ck_nv_go">Sí, empezar de nuevo →</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script src="plan-render.js"></script>
@@ -415,10 +469,41 @@
   // botones
   document.getElementById('undoBtn').addEventListener('click', ed.undo);
   document.getElementById('redoBtn').addEventListener('click', ed.redo);
+  // ---- mini-modal de etiquetas (adiós al prompt del navegador) ----
+  // pedirEtiqueta(titulo, inicial) -> Promise<string|null>
+  const pedirEtiqueta = (function(){
+    const ov = document.getElementById('ck_modal_etiqueta');
+    const inp = document.getElementById('ck_et_texto');
+    const tit = document.getElementById('ck_et_titulo');
+    let resolver = null;
+    function cerrar(valor){ ov.setAttribute('hidden',''); const r = resolver; resolver = null; if (r) r(valor); }
+    document.getElementById('ck_et_chips').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-t]'); if (!b) return;
+      cerrar(b.getAttribute('data-t'));           // un tap y listo
+    });
+    document.getElementById('ck_et_go').addEventListener('click', () => {
+      const v = (inp.value || '').trim(); if (v) cerrar(v);
+    });
+    document.getElementById('ck_et_close').addEventListener('click', () => cerrar(null));
+    ov.addEventListener('click', (e) => { if (e.target === ov) cerrar(null); });
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter'){ e.preventDefault(); const v=(inp.value||'').trim(); if (v) cerrar(v); }
+      if (e.key === 'Escape'){ e.preventDefault(); cerrar(null); }
+    });
+    return function (titulo, inicial) {
+      tit.innerHTML = (titulo || '¿Qué espacio es?') + ' <span class="accent">·</span>';
+      inp.value = inicial || '';
+      ov.removeAttribute('hidden');
+      setTimeout(() => inp.focus(), 60);
+      return new Promise((res) => { resolver = res; });
+    };
+  })();
+  window.pedirEtiqueta = pedirEtiqueta;          // lo usa el motor al crear una habitación
+
   // etiqueta de espacio
-  document.getElementById('labelBtn').addEventListener('click', () => {
-    const t = (prompt('Nombre del espacio (ej. Recámara, Cocina, Baño):', 'Recámara') || '').trim();
-    if (t) { ed.placeLabel(t); toast('Haz clic en el plano para colocar la etiqueta'); }
+  document.getElementById('labelBtn').addEventListener('click', async () => {
+    const t = await pedirEtiqueta('¿Qué espacio es?', '');
+    if (t) { ed.placeLabel(t); toast('Toca el plano para colocar la etiqueta'); }
   });
   // exportar PNG (compartir por WhatsApp)
   document.getElementById('pngBtn').addEventListener('click', () => {
@@ -446,12 +531,15 @@
   document.getElementById('ed_dupbtn').addEventListener('click', () => { if (ed.duplicateSel()) toast('Duplicado — arrástralo a su lugar'); });
   document.getElementById('narrowBtn').addEventListener('click', () => ed.widen(-0.10));
   document.getElementById('widenBtn').addEventListener('click', () => ed.widen(0.10));
-  function setTool(btnId){ ['addWall','addWin','addDoor','addSld'].forEach(function(id){ document.getElementById(id).classList.toggle('on', id===btnId); }); }
+  function setTool(btnId){ ['addWall','addWin','addDoor','addSld','addRoom'].forEach(function(id){ document.getElementById(id).classList.toggle('on', id===btnId); }); }
   document.addEventListener('keydown', function(e){ if(e.key==='Escape') setTool(null); });
+  // el pulso vive mientras la herramienta espera: al colocar algo, se apaga
+  document.getElementById('editor').addEventListener('pointerdown', function(){ setTimeout(function(){ if (!ed.isPlacing || !ed.isPlacing()) setTool(null); }, 0); });
   document.getElementById('addWin').addEventListener('click', (e) => { ed.startPlace('window'); setTool('addWin'); toast('Toca un muro para colocar la ventana · Esc para cancelar'); });
   document.getElementById('addDoor').addEventListener('click', (e) => { ed.startPlace('door'); setTool('addDoor'); toast('Toca un muro para colocar la puerta · Esc para cancelar'); });
   document.getElementById('addSld').addEventListener('click', (e) => { ed.startPlace('slider'); setTool('addSld'); toast('Toca un muro para colocar la corrediza · Esc para cancelar'); });
   document.getElementById('addWall').addEventListener('click', (e) => { ed.startPlace('wall'); setTool('addWall'); toast('Arrastra sobre el lienzo para dibujar el muro (se alinea recto) · Esc para cancelar'); });
+  document.getElementById('addRoom').addEventListener('click', (e) => { ed.placeRoom(); setTool('addRoom'); toast('Arrastra un rectángulo: salen sus 4 muros · Esc para cancelar'); });
   document.getElementById('reAllBtn').addEventListener('click', () => ed.reinforceAll(true));
   document.getElementById('reNoneBtn').addEventListener('click', () => ed.reinforceAll(false));
   document.getElementById('rotBtn').addEventListener('click', ed.rotateSel);
@@ -483,7 +571,13 @@
       html += '</div>';
     });
     body.innerHTML = html;
-    body.addEventListener('click', (e) => { const b = e.target.closest('.pbtn'); if (!b) return; ed.placeFurni(b.dataset.type); toast('Haz clic en el plano para colocar: ' + cat[b.dataset.type].label); });
+    body.addEventListener('click', (e) => {
+      const b = e.target.closest('.pbtn'); if (!b) return;
+      ed.placeFurni(b.dataset.type);
+      // se cierra sola: dejarla abierta tapaba justo el sitio donde vas a tocar
+      document.getElementById('palette').classList.remove('open');
+      toast('Toca el plano para colocar: ' + cat[b.dataset.type].label);
+    });
   })();
   const palette = document.getElementById('palette');
   document.getElementById('furnBtn').addEventListener('click', () => palette.classList.toggle('open'));

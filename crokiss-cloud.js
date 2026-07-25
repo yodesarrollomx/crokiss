@@ -315,6 +315,32 @@
       windows: [], doors: [], sliders: [], furniture: []
     };
   }
+  /* Mini-vista del lote mientras se teclea: ver el rectángulo cambiar de forma
+     convierte dos números abstractos en "mi terreno" antes de tocar nada. */
+  function dibujaLote() {
+    var cont = $('ck_lote_prev'); if (!cont) return;
+    var w = num($('ck_ancho') && $('ck_ancho').value), d = num($('ck_fondo') && $('ck_fondo').value);
+    if (!(w > 0) || !(d > 0)) { cont.innerHTML = ''; return; }
+    var CAJA = 132, esc = Math.min(CAJA / w, CAJA / d);
+    var pw = Math.max(8, w * esc), ph = Math.max(8, d * esc);
+    var VW = CAJA + 46, VH = CAJA + 34, x = (VW - pw) / 2, y = (VH - ph) / 2 + 4;
+    cont.innerHTML =
+      '<svg viewBox="0 0 ' + VW + ' ' + VH + '" style="width:190px;height:auto" aria-hidden="true">' +
+        '<rect x="' + x + '" y="' + y + '" width="' + pw + '" height="' + ph + '" ' +
+          'fill="#fbfaf8" stroke="#16181d" stroke-width="2.5"/>' +
+        '<line x1="' + x + '" y1="' + (y - 9) + '" x2="' + (x + pw) + '" y2="' + (y - 9) + '" ' +
+          'stroke="#c75b39" stroke-width="1"/>' +
+        '<text x="' + (x + pw / 2) + '" y="' + (y - 13) + '" text-anchor="middle" ' +
+          'font-family="Saira Semi Condensed,sans-serif" font-size="10" fill="#c75b39">' + w + ' m</text>' +
+        '<text x="' + (x - 8) + '" y="' + (y + ph / 2) + '" text-anchor="middle" ' +
+          'font-family="Saira Semi Condensed,sans-serif" font-size="10" fill="#c75b39" ' +
+          'transform="rotate(-90 ' + (x - 8) + ' ' + (y + ph / 2) + ')">' + d + ' m</text>' +
+        '<text x="' + (VW / 2) + '" y="' + (VH - 2) + '" text-anchor="middle" ' +
+          'font-family="Saira Semi Condensed,sans-serif" font-size="10.5" fill="#6b6256">' +
+          (Math.round(w * d * 100) / 100) + ' m²</text>' +
+      '</svg>';
+  }
+
   function startTerrain(w, d) {
     w = num(w); d = num(d);
     if (!(w > 0) || !(d > 0)) { toast('Escribe el ancho y el fondo en metros'); return; }
@@ -510,19 +536,32 @@
     });
     if ($('ckLogoutBtn')) $('ckLogoutBtn').addEventListener('click', cerrarSesion);
     if ($('ckOpenBtn')) $('ckOpenBtn').addEventListener('click', function () { show($('ck_modal_abrir')); });
-    if ($('ckNewBtn'))  $('ckNewBtn').addEventListener('click', function () {
-      if (confirm('¿Empezar un proyecto nuevo? Guarda el actual con tu clave para no perderlo.')) {
-        if (ident) lastCreds = { correo: ident.correo, clave: ident.clave };
-        ident = null; saveIdent();
-        show($('ck_modal_terreno'));
-      }
+    // "✦ Nuevo" con modal propio: el confirm() del navegador era el otro punto
+    // donde CroKiss dejaba de parecer CroKiss.
+    if ($('ckNewBtn')) $('ckNewBtn').addEventListener('click', function () { show($('ck_modal_nuevo')); });
+    if ($('ck_nv_close')) $('ck_nv_close').addEventListener('click', function () { hide($('ck_modal_nuevo')); });
+    if ($('ck_nv_go')) $('ck_nv_go').addEventListener('click', function () {
+      hide($('ck_modal_nuevo'));
+      // soltar la identidad ANTES de sembrar el terreno: si no, el sync pisa
+      // el proyecto guardado con el terreno vacío (decisión #7 de CLAUDE.md)
+      if (ident) lastCreds = { correo: ident.correo, clave: '' };
+      ident = null; saveIdent();
+      show($('ck_modal_terreno'));
+    });
+    if ($('ck_modal_nuevo')) $('ck_modal_nuevo').addEventListener('click', function (e) {
+      if (e.target === $('ck_modal_nuevo')) hide($('ck_modal_nuevo'));
     });
 
     if ($('ck_terreno_go'))    $('ck_terreno_go').addEventListener('click', function () { startTerrain($('ck_ancho').value, $('ck_fondo').value); });
+    ['ck_ancho', 'ck_fondo'].forEach(function (id) {
+      if ($(id)) $(id).addEventListener('input', dibujaLote);
+    });
+    dibujaLote();
     if ($('ck_terreno_abrir')) $('ck_terreno_abrir').addEventListener('click', function (e) { e.preventDefault(); hide($('ck_modal_terreno')); show($('ck_modal_abrir')); });
     if ($('ck_presets')) $('ck_presets').addEventListener('click', function (e) {
       var b = e.target.closest('[data-w]'); if (!b) return;
       $('ck_ancho').value = b.getAttribute('data-w'); $('ck_fondo').value = b.getAttribute('data-d');
+      dibujaLote();
     });
 
     if ($('ck_g_go'))    $('ck_g_go').addEventListener('click', submitSave);

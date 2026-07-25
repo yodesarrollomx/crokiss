@@ -60,6 +60,9 @@
        Antes las manijas eran de radio fijo en unidades de usuario: en un
        iPhone con el terreno ajustado quedaban en ~4 px y no se podían agarrar. */
     let K = 1;
+    let fantasma = null;
+    let ultimaEtiqueta = { id: null, t: 0 };   // para detectar el doble toque
+    let ultimoSnap = '';        // para vibrar una sola vez por celda de la retícula        // rectángulo punteado mientras se dibuja una habitación
     const HIT_PX = 22;    // radio tocable en px reales → 44 px de diámetro
     const VIS_PX = 9;     // radio visible en px reales
     const ACC = '#c75b39';
@@ -453,8 +456,39 @@
           const vert = isV(w);
           const tx = vert ? mx - 9 : mx, ty = vert ? my : my - 8;
           const isSel = sel && sel.kind === 'wall' && sel.id === w.id;
-          lab += el('text', Object.assign({ x: tx, y: ty, 'text-anchor': 'middle', fill: isSel ? '#c75b39' : '#6b6256', 'font-size': isSel ? 13 : 11, 'font-family': 'var(--fl)', 'font-weight': isSel ? 700 : 500 }, vert ? { transform: `rotate(-90 ${tx} ${ty})` } : {}), fmt(L));
+          const attrs = Object.assign({ x: tx, y: ty, 'text-anchor': 'middle',
+            fill: isSel ? ACC : '#6b6256', 'font-size': (isSel ? 13 : 11) * K,
+            'font-family': 'var(--fl)', 'font-weight': isSel ? 700 : 500 },
+            vert ? { transform: `rotate(-90 ${tx} ${ty})` } : {});
+          // La cota del muro seleccionado se puede tocar para teclear la medida
+          // exacta: es la diferencia entre "dibujar a ojo" y "poner 3.40".
+          if (isSel) {
+            attrs['data-cota'] = 'wall:' + w.id;
+            attrs.style = 'cursor:text';
+            lab += el('rect', { x: tx - 26 * K, y: ty - 13 * K, width: 52 * K, height: 18 * K,
+              fill: 'rgba(0,0,0,0)', 'data-cota': 'wall:' + w.id, style: 'cursor:text',
+              transform: vert ? `rotate(-90 ${tx} ${ty})` : '' });
+          }
+          lab += el('text', attrs, fmt(L));
         });
+        // Ancho del vano seleccionado: también se puede tocar y teclear.
+        if (sel && (sel.kind === 'window' || sel.kind === 'slider' || sel.kind === 'door')) {
+          const o = find(sel.kind, sel.id);
+          if (o) {
+            const esPuerta = sel.kind === 'door';
+            const ancho = esPuerta ? o.w : (o.b - o.a);
+            const h = o.wall === 'h';
+            const cxm = esPuerta ? (h ? o.hx + ancho / 2 : o.hx) : (h ? (o.a + o.b) / 2 : o.fixed);
+            const cym = esPuerta ? (h ? o.hy : o.hy + ancho / 2) : (h ? o.fixed : (o.a + o.b) / 2);
+            const px = X(cxm), py = Y(cym) + (h ? 20 * K : 0);
+            const qx = h ? px : px + 22 * K;
+            lab += el('rect', { x: qx - 26 * K, y: py - 13 * K, width: 52 * K, height: 18 * K,
+              fill: 'rgba(0,0,0,0)', 'data-cota': sel.kind + ':' + sel.id, style: 'cursor:text' });
+            lab += el('text', { x: qx, y: py, 'text-anchor': 'middle', fill: ACC,
+              'font-size': 12 * K, 'font-family': 'var(--fl)', 'font-weight': 700,
+              'data-cota': sel.kind + ':' + sel.id, style: 'cursor:text' }, fmt(ancho));
+          }
+        }
         g += el('g', {}, lab);
       }
 
@@ -493,6 +527,37 @@
           });
         }
       });
+      /* Nota de lápiz dentro del lienzo: los primeros 10 segundos son un lienzo
+         vacío frente a alguien que no sabe qué tocar. No es un div flotando
+         encima: es parte del dibujo, como si viniera escrita en el papel.
+         No se anima (nada se anima dentro del SVG); simplemente ya no se dibuja
+         en cuanto el usuario traza algo suyo. */
+      if (notaInicial()) {
+        // Cerca del borde superior, NO en el centro geométrico: en un terreno de
+        // 20 m de fondo el centro cae fuera de la pantalla y la nota no se ve.
+        const nx = X(b.maxX / 2), ny = Y(Math.min(b.maxY / 2, 3.2));
+        g += el('text', { x: nx, y: ny, 'text-anchor': 'middle', fill: '#b6ada1',
+          'font-size': 17 * K, 'font-family': 'var(--fl)', 'font-style': 'italic',
+          'font-weight': 500, 'pointer-events': 'none' },
+          'Toca + Muro y arrastra para dividir tu casa');
+        g += el('text', { x: nx, y: ny + 22 * K, 'text-anchor': 'middle', fill: '#c9c0b4',
+          'font-size': 13 * K, 'font-family': 'var(--fl)', 'font-style': 'italic',
+          'pointer-events': 'none' },
+          '· o + Habitación para hacer un cuarto de un jalón ·');
+      }
+
+      // rectángulo fantasma de la habitación en curso (trazo punteado, sin animación)
+      if (fantasma) {
+        const fx = Math.min(fantasma.x1, fantasma.x2), fy = Math.min(fantasma.y1, fantasma.y2);
+        const fw = Math.abs(fantasma.x2 - fantasma.x1), fh = Math.abs(fantasma.y2 - fantasma.y1);
+        g += el('rect', { x: X(fx), y: Y(fy), width: fw * PPM, height: fh * PPM,
+          fill: 'rgba(199,91,57,.07)', stroke: ACC, 'stroke-width': 1.6 * K, 'stroke-dasharray': (7 * K) + ' ' + (5 * K) });
+        g += el('text', { x: X(fx) + fw * PPM / 2, y: Y(fy) + fh * PPM / 2,
+          'text-anchor': 'middle', 'dominant-baseline': 'middle', fill: ACC,
+          'font-size': 13 * K, 'font-family': 'var(--fl)', 'font-weight': 600 },
+          fmt(fw) + ' × ' + fmt(fh) + ' m');
+      }
+
       // ventanas: cuerpo + extremos a/b
       geom.windows.forEach((wn) => {
         const isSel = sel && sel.kind === 'window' && sel.id === wn.id;
@@ -632,6 +697,19 @@
         placing = null; svgEl.style.cursor = ''; render();
         ev.preventDefault(); return;
       }
+      // modo HABITACIÓN: arrastra un rectángulo y salen sus 4 muros
+      if (placing === 'room') {
+        const m = clientToM(ev.clientX, ev.clientY);
+        placing = null; svgEl.style.cursor = '';
+        drag = { kind: 'drawroom', m0: { x: snapV(m.x), y: snapV(m.y) }, pointerId: ev.pointerId,
+                 snap0: JSON.stringify(geom), pushed: false, moved: false };
+        fantasma = { x1: drag.m0.x, y1: drag.m0.y, x2: drag.m0.x, y2: drag.m0.y };
+        try { svgEl.setPointerCapture(ev.pointerId); } catch (e) {}
+        svgEl.addEventListener('pointermove', onMove);
+        svgEl.addEventListener('pointerup', onUp);
+        svgEl.addEventListener('pointercancel', onUp);
+        render(); ev.preventDefault(); return;
+      }
       // modo colocación de VANO: clic en muro o block coloca el elemento
       if (placing && placing !== 'wall') {
         const wt = ev.target.closest('[data-kind="wall"], [data-kind="block"]');
@@ -655,6 +733,10 @@
         svgEl.addEventListener('pointercancel', onUp);
         render(); ev.preventDefault(); return;
       }
+      // toque en la cota del muro seleccionado -> editor numérico flotante
+      const ct = ev.target.closest('[data-cota]');
+      if (ct) { abreCota(ct.getAttribute('data-cota'), ev.clientX, ev.clientY); ev.preventDefault(); return; }
+
       const t = ev.target.closest('[data-kind]');
       if (!t) { sel = null; render(); return; }
       let kind = t.getAttribute('data-kind'), id = t.getAttribute('data-id'), part = t.getAttribute('data-part');
@@ -662,6 +744,17 @@
       if (kind === 'block') { blockToggle = { wallId: id, idx: +t.getAttribute('data-idx') }; kind = 'wall'; part = 'body'; }
       const obj = find(kind, id);
       if (!obj) return;
+      // doble toque en una etiqueta = renombrarla (con el modal de CroKiss)
+      if (kind === 'label') {
+        const ahora = Date.now();
+        if (ultimaEtiqueta.id === id && (ahora - ultimaEtiqueta.t) < 400) {
+          ultimaEtiqueta = { id: null, t: 0 };
+          renombraEtiqueta(id);
+          ev.preventDefault(); return;
+        }
+        ultimaEtiqueta = { id: id, t: ahora };
+      }
+
       sel = { kind, id };
       const m0 = clientToM(ev.clientX, ev.clientY);
       // Historia HONESTA: seleccionar no es mutar. Se guarda un candidato y se
@@ -790,6 +883,13 @@
       const m = clientToM(ev.clientX, ev.clientY);
       const dx = m.x - drag.m0.x, dy = m.y - drag.m0.y;
 
+      // habitación: rectángulo fantasma que sigue al puntero
+      if (drag.kind === 'drawroom') {
+        drag.moved = true;
+        fantasma = { x1: drag.m0.x, y1: drag.m0.y, x2: snapV(m.x), y2: snapV(m.y) };
+        render(); ev.preventDefault(); return;
+      }
+
       // dibujo de muro nuevo: extremo ortogonal
       if (drag.kind === 'drawwall') {
         const w = find('wall', drag.id);
@@ -797,6 +897,16 @@
         if (Math.abs(ex - w.x1) >= Math.abs(ey - w.y1)) { w.x2 = ex; w.y2 = w.y1; }
         else { w.y2 = ey; w.x2 = w.x1; }
         render(); ev.preventDefault(); return;
+      }
+
+      // Un golpecito cuando el trazo cae en la retícula: en el teléfono es la
+      // única forma de "sentir" el snap. Con guard porque iOS no lo implementa.
+      if (snap > 0) {
+        const paso = Math.round(m.x / snap) + ',' + Math.round(m.y / snap);
+        if (paso !== ultimoSnap) {
+          ultimoSnap = paso;
+          try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) {}
+        }
       }
 
       // umbral clic vs arrastre (para diferenciar reforzar block de mover muro)
@@ -866,6 +976,23 @@
       ev.preventDefault();
     }
     function onUp(ev) {
+      if (drag && drag.kind === 'drawroom') {
+        const f = fantasma; fantasma = null;
+        const x1 = Math.min(f.x1, f.x2), x2 = Math.max(f.x1, f.x2);
+        const y1 = Math.min(f.y1, f.y2), y2 = Math.max(f.y1, f.y2);
+        drag = null;
+        svgEl.removeEventListener('pointermove', onMove);
+        svgEl.removeEventListener('pointerup', onUp);
+        svgEl.removeEventListener('pointercancel', onUp);
+        // menos de 1×1 m casi siempre es un toque accidental, no una habitación
+        if ((x2 - x1) < 1 || (y2 - y1) < 1) {
+          render();
+          if (typeof window.toast === 'function') window.toast('Una habitación necesita al menos 1 × 1 m — arrastra un poco más');
+          return;
+        }
+        crearHabitacion(x1, y1, x2, y2);
+        return;
+      }
       if (drag && drag.kind === 'drawwall') {
         const w = find('wall', drag.id);
         if (w && wallLen(w) < 0.10) { geom.walls = geom.walls.filter((x) => x.id !== w.id); sel = null; }
@@ -1037,7 +1164,120 @@
       else { const c = (o.a + o.b) / 2; const half = Math.max(0.20, (o.b - o.a) / 2 + delta / 2); o.a = round2(c - half); o.b = round2(c + half); }
       save(); render();
     }
+    /* ============ cota editable ============
+       Un input flotante encima del lienzo, con la voz de CroKiss. Enter aplica,
+       Esc cancela. Al aplicar, p1 se queda quieto y p2 se recorre sobre el
+       mismo eje: el muro crece "hacia donde ibas", no desde el centro. */
+    let cotaBox = null;
+    function cierraCota() {
+      if (cotaBox && cotaBox.parentNode) cotaBox.parentNode.removeChild(cotaBox);
+      cotaBox = null;
+    }
+    function abreCota(ref, clientX, clientY) {
+      const partes = String(ref).split(':');
+      const tipo = partes[0], id = partes.slice(1).join(':');
+      const obj = find(tipo, id); if (!obj) return;
+      const esMuro = tipo === 'wall';
+      const actual = esMuro ? wallLen(obj)
+                   : (tipo === 'door' ? obj.w : (obj.b - obj.a));
+      cierraCota();
+      const inp = document.createElement('input');
+      inp.type = 'text'; inp.inputMode = 'decimal';
+      inp.value = fmt(actual);
+      inp.setAttribute('aria-label', esMuro ? 'Largo del muro en metros' : 'Ancho en metros');
+      inp.style.cssText = 'position:fixed;z-index:95;width:86px;padding:7px 9px;font-family:var(--fl);' +
+        'font-size:15px;font-weight:600;color:#16181d;background:#fff;border:1.5px solid ' + ACC +
+        ';border-radius:8px;box-shadow:0 8px 22px rgba(0,0,0,.18);text-align:center;' +
+        'left:' + Math.round(clientX - 43) + 'px;top:' + Math.round(clientY - 18) + 'px';
+      document.body.appendChild(inp);
+      cotaBox = inp;
+      setTimeout(function () { inp.focus(); inp.select(); }, 20);
+
+      function aplica() {
+        const v = parseFloat(String(inp.value).replace(',', '.'));
+        cierraCota();
+        if (!isFinite(v) || v <= 0) return;
+        const o = find(tipo, id); if (!o) return;
+        pushHistory();
+        const medida = snapV(Math.max(0.1, v));
+        if (esMuro) {
+          // p1 se queda quieto y p2 se recorre sobre el mismo eje
+          if (isH(o))      o.x2 = round2(o.x1 + Math.sign(o.x2 - o.x1 || 1) * medida);
+          else if (isV(o)) o.y2 = round2(o.y1 + Math.sign(o.y2 - o.y1 || 1) * medida);
+          else {
+            const dx = o.x2 - o.x1, dy = o.y2 - o.y1, L = Math.hypot(dx, dy) || 1;
+            o.x2 = round2(o.x1 + dx / L * medida); o.y2 = round2(o.y1 + dy / L * medida);
+          }
+          clampVanosDe(o);                       // los vanos se re-acomodan (P3)
+        } else if (tipo === 'door') {
+          o.w = Math.max(0.40, medida);
+          clampVano(o, muroDe(o));
+        } else {
+          // ventana/corrediza: recrece CENTRADA, igual que el botón "+ ancho"
+          const c = (o.a + o.b) / 2;
+          o.a = round2(c - medida / 2); o.b = round2(c + medida / 2);
+          clampVano(o, muroDe(o));
+        }
+        save(); render();
+      }
+      inp.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); aplica(); }
+        else if (e.key === 'Escape') { e.preventDefault(); cierraCota(); }
+        e.stopPropagation();
+      });
+      inp.addEventListener('blur', aplica);
+    }
+
+    /* ¿Sigue siendo el lienzo recién sembrado? (solo el terreno, nada propio) */
+    function notaInicial() {
+      if (!geom || !geom.lot) return false;
+      return (geom.walls || []).length <= 4 &&
+             !(geom.windows || []).length && !(geom.doors || []).length &&
+             !(geom.sliders || []).length && !(geom.furniture || []).length &&
+             !(geom.labels || []).length;
+    }
+
+    function renombraEtiqueta(id) {
+      const l = find('label', id); if (!l) return;
+      if (typeof window.pedirEtiqueta !== 'function') return;
+      window.pedirEtiqueta('¿Cómo se llama?', l.text || '').then(function (t) {
+        if (!t) return;
+        const o = find('label', id); if (!o) return;
+        pushHistory();
+        o.text = String(t).slice(0, 40);
+        save(); render();
+      });
+    }
+
     function startPlace(type) { placing = type; if (svgEl) svgEl.style.cursor = 'crosshair'; sel = null; render(); }
+
+    /* Una habitación son 4 muros interiores normales + una etiqueta normal: el
+       geom no gana ningún concepto nuevo, así que la lámina, las fachadas y el
+       resumen la entienden sin tocar nada. */
+    function crearHabitacion(x1, y1, x2, y2) {
+      pushHistory();
+      const nuevos = [
+        { id: nid('w'), type: 'int', x1: x1, y1: y1, x2: x2, y2: y1, re: [] },
+        { id: nid('w'), type: 'int', x1: x2, y1: y1, x2: x2, y2: y2, re: [] },
+        { id: nid('w'), type: 'int', x1: x1, y1: y2, x2: x2, y2: y2, re: [] },
+        { id: nid('w'), type: 'int', x1: x1, y1: y1, x2: x1, y2: y2, re: [] }
+      ];
+      nuevos.forEach((w) => geom.walls.push(w));
+      const cx = round2((x1 + x2) / 2), cy = round2((y1 + y2) / 2);
+      const et = { id: nid('t'), cx: cx, cy: cy, text: 'Espacio' };
+      geom.labels.push(et);
+      sel = { kind: 'label', id: et.id };
+      save(); render();
+      // el nombre se pide con el mini-modal de CroKiss, nunca con prompt()
+      if (typeof window.pedirEtiqueta === 'function') {
+        window.pedirEtiqueta('¿Qué espacio es?', '').then(function (t) {
+          const l = find('label', et.id); if (!l) return;
+          l.text = String(t || 'Espacio').slice(0, 40);
+          save(); render();
+        });
+      }
+      return et;
+    }
     // reforzar / liberar todos los blocks del muro seleccionado
     function reinforceAll(flag) {
       if (!sel || sel.kind !== 'wall') return; const w = find('wall', sel.id); if (!w) return;
@@ -1159,8 +1399,10 @@
     this.getJoint = () => Math.round((geom.joint != null ? geom.joint : DEF_JOINT) * 100);
     this.reinforceAll = reinforceAll;
     this.rotateSel = rotateSel;
+    this.placeRoom = () => startPlace('room');
     this.placeFurni = (type) => startPlace('furn:' + type);
     this.placeLabel = (text) => startPlace('label:' + String(text || 'Espacio'));
+    this.isPlacing = () => !!placing;
     this.cancelPlace = () => { if (placing) { placing = null; if (svgEl) svgEl.style.cursor = ''; render(); } };
     // exportar el croquis como PNG (para compartir por WhatsApp)
     this.exportPNG = (cb) => {

@@ -128,6 +128,17 @@ Solo front: **no requiere re-desplegar nada del backend.**
 
 **Cómo leer el embudo** (pestaña Eventos → Insertar → Tabla dinámica): filas = `evento`, valores = COUNTA de `client_id` (**resumir por → Recuento único**). El orden natural del embudo es `terreno_creado` → `primer_elemento` → `nudge_visto` → `modal_guardar_abierto` → `guardado_ok`. La caída más grande entre dos pasos consecutivos es el cuello. `guardado_error` agrupado por `extra` dice **por qué** se cae la gente.
 
+### P5 (2026-07-25) — alma artesanal I
+
+Solo front: **no requiere re-desplegar nada.**
+
+- **Cotas editables.** Tocar la cota de un muro seleccionado abre un input flotante ahí mismo (terracota, tipografía de CroKiss). Enter aplica: **p1 se queda quieto y p2 se recorre** sobre el mismo eje, con snap; Esc cancela. Sus vanos se re-clampan con la lógica de P3. Igual para el **ancho** de ventana/corrediza/puerta seleccionada, que **recrece centrado** como el botón "+ ancho".
+- **Herramienta "+ Habitación".** Arrastras un rectángulo con trazo punteado (y su medida viva al centro) y al soltar salen sus **4 muros interiores + la etiqueta**, que pide nombre con el mini-modal. Menos de 1 × 1 m se descarta con un aviso amable. El geom **no gana ningún concepto nuevo**: son muros y etiqueta normales, así que lámina, fachadas y resumen la entienden sin tocar nada.
+- **Cero `prompt()` / `confirm()`.** Mini-modal propio de etiquetas con 7 chips de un tap (Recámara · Cocina · Baño · Sala · Comedor · Patio · Cochera) + campo libre; se usa al crear etiqueta, al nombrar habitación y al **doble-tocar** una etiqueta existente. "✦ Nuevo" tiene su propio modal con la voz de CroKiss. Verificado por prueba, ignorando comentarios.
+- **Paleta**: se cierra sola al elegir mueble (dejarla abierta tapaba justo donde ibas a tocar).
+- **Primeros 10 segundos:** (a) **mini-vista del lote** en el modal de terreno, que se redibuja al teclear y muestra la superficie; (b) **nota de lápiz dentro del lienzo** ("Toca + Muro y arrastra para dividir tu casa") — es un elemento del render, no un div, y deja de dibujarse en cuanto el usuario traza algo suyo. Va **cerca del borde superior, no en el centro geométrico**: en un terreno de 20 m de fondo el centro cae fuera de la pantalla y no se veía; (c) **pulso suave** en la herramienta activa mientras espera; (d) `navigator.vibrate(8)` al caer en la retícula, con guard de existencia.
+- **Micro-entradas** de 170-180 ms **solo** en modales, nudge, éxito y toast, con `prefers-reduced-motion`. **Dentro del SVG no se anima nada**: el lienzo es papel.
+
 ## Pendiente (backend, para segunda ronda — NO shippeado por riesgo)
 
 - **Hasheo de la clave**: hoy se guarda/transmite en claro. ⚠️ **Ya se implementó una vez** (columnas `clave_hash`+`salt`, SHA-256 con `Utilities.computeDigest`, fallback y migración) en el commit **`ec6d029`**, y `975b699` lo revirtió por accidente al subir un `Code.gs` viejo. **No lo reescribas desde cero:** parte de `git show ec6d029:Code.gs` y fusiónalo sobre el `Code.gs` actual. Sigue pendiente probarlo con una cuenta de prueba antes de activar: hacerlo mal bloquea a los leads que regresan.
