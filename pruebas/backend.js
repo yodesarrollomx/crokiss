@@ -617,6 +617,58 @@ grupo('Embudo: pestaña Eventos (P4)');
   ok(ev.celdas.length === antes, 'abrir CON credenciales no cuenta como "volvió por correo"');
 }
 
+grupo('Compartir y borrar (P6)');
+{
+  // enlace compartido vencido
+  const vieja = new Date(Date.now() - 70 * 24 * 3600 * 1000);
+  const fila = filaMigrada('ck1', 'ana@x.com', 'clave-uno'); fila[0] = vieja;
+  const planos = hojaFalsa('Planos', [fila]);
+  const { sandbox } = entorno({ hojas: { Planos: planos } });
+  ok(resp(sandbox.doGet({ parameter: { action: 'plan', id: 'ck1' } })).error === 'no_disponible',
+     'un enlace sin clave caduca a los 60 días');
+  ok(resp(sandbox.doGet({ parameter: { action: 'plan', id: 'ck1', correo: 'ana@x.com', clave: 'clave-uno' } })).ok === true,
+     'pero el DUEÑO entra cuando quiera, con su clave');
+}
+{
+  const H_HIST = ['ts','plan_id','plan_name','correo','version','geom_json'];
+  const planos = hojaFalsa('Planos', [
+    filaMigrada('ck1', 'ana@x.com', 'clave-uno', 'Casa'),
+    filaMigrada('ck2', 'ana@x.com', 'clave-uno', 'Bodega'),
+    filaMigrada('ck3', 'otro@x.com', 'clave-dos', 'Ajena')
+  ]);
+  const hist = hojaFalsa('Historial', [
+    [new Date(), 'ck1', 'Casa', 'ana@x.com', 1, BLOB],
+    [new Date(), 'ck2', 'Bodega', 'ana@x.com', 1, BLOB],
+    [new Date(), 'ck3', 'Ajena', 'otro@x.com', 1, BLOB]
+  ], H_HIST);
+  const { sandbox } = entorno({ hojas: { Planos: planos, Historial: hist } });
+
+  ok(post(sandbox, { mode: 'borrar', correo: 'ana@x.com', clave: 'mala' }).error === 'no_autorizado',
+     'borrar con clave incorrecta se rechaza');
+  ok(planos.celdas.length === 4, 'y no borró nada');
+
+  const r = post(sandbox, { mode: 'borrar', correo: 'ana@x.com', clave: 'clave-uno' });
+  ok(r.ok && r.planos === 2, 'borrar con credenciales válidas elimina sus 2 proyectos', JSON.stringify(r));
+  ok(planos.celdas.length === 2, 'queda solo el encabezado y el proyecto ajeno');
+  ok(String(planos.celdas[1][planos.colDe('correo') - 1]) === 'otro@x.com',
+     'el proyecto de otra persona queda intacto');
+  ok(hist.celdas.filter((f) => f[3] === 'ana@x.com').length === 0, 'y se limpia su historial');
+  ok(hist.celdas.filter((f) => f[3] === 'otro@x.com').length === 1, 'sin tocar el de nadie más');
+}
+{
+  const { sandbox } = entorno({ hojas: { Planos: hojaFalsa('Planos', []) } });
+  ok(post(sandbox, { mode: 'borrar', correo: 'nadie@x.com', clave: 'clave-uno' }).error === 'no_encontrado',
+     'borrar un correo que no existe responde no_encontrado');
+}
+{
+  const planos = hojaFalsa('Planos', [filaMigrada('ck1', 'ana@x.com', 'clave-uno')]);
+  const { sandbox } = entorno({ hojas: { Planos: planos } });
+  for (let i = 0; i < sandbox.CONFIG.MAX_BORRAR_CORREO; i++)
+    post(sandbox, { mode: 'borrar', correo: 'ana@x.com', clave: 'mala' });
+  ok(post(sandbox, { mode: 'borrar', correo: 'ana@x.com', clave: 'mala' }).error === 'demasiados_intentos',
+     'rate-limit de 5/h en el borrado');
+}
+
 grupo('sync no crea proyectos');
 {
   const { sandbox } = entorno({ hojas: { Planos: hojaFalsa('Planos', []) } });

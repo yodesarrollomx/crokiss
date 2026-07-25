@@ -69,6 +69,8 @@
     correo_invalido:     'Revisa tu correo: no parece válido.',
     demasiados_intentos: 'Demasiados intentos. Espera unos minutos y vuelve a probar.',
     spam:                'No pudimos procesar el formulario.',
+    no_disponible:       'Este enlace ya venció. Pídele al dueño que lo reabra, o dibuja el tuyo gratis.',
+    no_encontrado:       'No encontramos ese proyecto.',
     error_interno:       'Algo falló de nuestro lado. Tu plano sigue a salvo en este navegador.'
   };
   function msgError(code) {
@@ -143,6 +145,15 @@
   function sugiereClave() {
     var el = $('ck_g_clave');
     if (el && !el.value) el.value = claveSugerida();
+  }
+
+  function copiaAMano(txt, listo) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+      listo();
+    } catch (e) { toast('Copia este enlace: ' + txt); }
   }
 
   /* WhatsApp si ya hay número; si no, el correo de siempre. Nunca un enlace roto. */
@@ -392,6 +403,26 @@
       });
   }
 
+  /* Borrar mis datos (ARCO). Es definitivo y se dice con todas sus letras. */
+  function submitBorrar() {
+    var correo = ($('ck_b_correo').value || '').trim().toLowerCase();
+    var clave  = ($('ck_b_clave').value  || '').trim();
+    if (!correo || !clave) { toast('Escribe tu correo y tu clave'); return; }
+    var btn = $('ck_b_go'); if (btn) btn.disabled = true;
+    post({ mode: 'borrar', correo: correo, clave: clave })
+      .then(function (res) {
+        if (btn) btn.disabled = false;
+        if (res && res.ok) {
+          hide($('ck_modal_borrar')); hide($('ck_modal_guardar'));
+          cerrarSesion();
+          toast('Listo: borramos ' + res.planos + ' proyecto(s) de nuestra hoja.');
+        } else {
+          toast(msgError(res && res.error));
+        }
+      })
+      .catch(function () { if (btn) btn.disabled = false; toast('Sin conexión. Inténtalo más tarde.'); });
+  }
+
   /* ---------------- abrir con clave (lista + selector) ---------------- */
   function submitOpen() {
     var correo = ($('ck_a_correo').value || '').trim().toLowerCase();
@@ -513,10 +544,20 @@
           '<div style="font-size:18px;font-weight:600;color:#16181d">' + esc(clave) + '</div>' +
         '</div>' +
         '<a href="' + esc(contactURL()) + '" id="ck_cta" target="_blank" rel="noopener" style="display:block;text-align:center;background:#c75b39;color:#fff;text-decoration:none;border-radius:10px;padding:12px;font-weight:600;font-size:15px;margin-bottom:8px">¿Quieres que Aurum convierta tu croquis en un proyecto real? →</a>' +
+        (ident && ident.planId
+          ? '<button id="ck_succ_link" style="width:100%;background:none;border:1px solid #c75b39;border-radius:10px;padding:11px;color:#c75b39;font:inherit;font-weight:600;cursor:pointer;margin-bottom:8px">🔗 Compartir enlace de mi croquis</button>'
+          : '') +
         '<button id="ck_succ_close" style="width:100%;background:none;border:1px solid #d8d5cd;border-radius:10px;padding:11px;color:#6b6256;font:inherit;cursor:pointer">Seguir dibujando</button>' +
       '</div>';
     $('ck_succ_close').addEventListener('click', function () { ov.remove(); });
     if ($('ck_cta')) $('ck_cta').addEventListener('click', function () { track('cta_contacto_click'); });
+    if ($('ck_succ_link')) $('ck_succ_link').addEventListener('click', function () {
+      var url = location.origin + location.pathname + '?plan=' + encodeURIComponent(ident.planId);
+      var listo = function () { toast('Enlace copiado — pégalo donde quieras'); track('compartir_enlace'); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(listo).catch(function () { copiaAMano(url, listo); });
+      } else copiaAMano(url, listo);
+    });
   }
 
   /* ---------------- arranque ---------------- */
@@ -564,6 +605,14 @@
       dibujaLote();
     });
 
+    if ($('ck_borrar_link')) $('ck_borrar_link').addEventListener('click', function (e) {
+      e.preventDefault();
+      if ($('ck_b_correo')) $('ck_b_correo').value = ($('ck_g_correo').value || '').trim();
+      show($('ck_modal_borrar'));
+    });
+    if ($('ck_b_close')) $('ck_b_close').addEventListener('click', function () { hide($('ck_modal_borrar')); });
+    if ($('ck_b_go')) $('ck_b_go').addEventListener('click', submitBorrar);
+
     if ($('ck_g_go'))    $('ck_g_go').addEventListener('click', submitSave);
     if ($('ck_g_close')) $('ck_g_close').addEventListener('click', function () { hide($('ck_modal_guardar')); });
     if ($('ck_a_go'))    $('ck_a_go').addEventListener('click', submitOpen);
@@ -583,8 +632,46 @@
     });
   }
 
+  /* ---------------- modo compartir (solo lectura) ----------------
+     ?plan=ID muestra el croquis sin barra, sin paleta y sin barra de info:
+     es una vitrina, no un editor. Nunca expone el correo ni la clave del
+     dueño (el backend no los devuelve sin credenciales). */
+  function modoCompartir(planId) {
+    document.body.classList.add('ck-solo-lectura');
+    // ANTES de cargar nada: el motor deja de escribir en localStorage. Si no,
+    // abrir un croquis compartido le borraría al visitante su propio borrador.
+    if (ed.setSoloLectura) ed.setSoloLectura(true);
+    var banda = document.createElement('div');
+    banda.id = 'ck_banda';
+    banda.innerHTML =
+      '<span>Croquis hecho en <b>Cro&middot;Kiss</b></span>' +
+      '<a href="./">Dibuja el tuyo gratis &rarr;</a>';
+    document.body.insertBefore(banda, document.body.firstChild);
+
+    get({ action: 'plan', id: planId }).then(function (res) {
+      if (res && res.ok && res.geom) {
+        ed.loadGeom(res.geom);
+        if (res.plan_name) {
+          var t = document.createElement('span');
+          t.className = 'ck-banda-nombre';
+          t.textContent = res.plan_name;
+          banda.insertBefore(t, banda.lastChild);
+        }
+        if (ed.zoomFit) ed.zoomFit();
+      } else {
+        banda.innerHTML = '<span>' + esc(msgError(res && res.error)) + '</span>' +
+                          '<a href="./">Dibuja el tuyo gratis &rarr;</a>';
+      }
+    }).catch(function () {
+      banda.innerHTML = '<span>No pudimos abrir este croquis.</span><a href="./">Dibuja el tuyo gratis &rarr;</a>';
+    });
+  }
+
   function boot(editor) {
     ed = editor;
+    // modo vitrina: se decide ANTES de cualquier identidad o sincronización
+    var soloLectura = new URLSearchParams(location.search).get('plan');
+    if (soloLectura) { modoCompartir(soloLectura); return; }
     loadIdent();
     if (ident) lastCreds = { correo: ident.correo, clave: ident.clave };
     wire();

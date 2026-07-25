@@ -4,6 +4,26 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CroKiss — El primer beso con tu proyecto</title>
+<meta name="description" content="Dibuja el croquis de tu casa gratis, desde el tamaño de tu terreno. Sin instalar nada. Por Aurum Arquitectos.">
+
+<!-- Identidad mínima: el punto terracota de Cro·Kiss como favicon, en SVG
+     inline para no pedir un archivo más. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23fbfaf8'/%3E%3Ctext x='16' y='22' font-family='Arial,sans-serif' font-size='17' font-weight='700' text-anchor='middle' fill='%2316181d'%3EC%3C/text%3E%3Ccircle cx='25' cy='20' r='3' fill='%23c75b39'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#fbfaf8">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-title" content="CroKiss">
+
+<!-- Cómo se ve cuando alguien pega el enlace en WhatsApp -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="CroKiss — dibuja el croquis de tu casa gratis">
+<meta property="og:description" content="Empieza por el tamaño de tu terreno y dibuja tu casa en minutos. Te lo mandamos por correo. Por Aurum Arquitectos.">
+<meta property="og:image" content="https://alexpueblag.github.io/crokiss/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url" content="https://alexpueblag.github.io/crokiss/">
+<meta name="twitter:card" content="summary_large_image">
+
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Saira+Semi+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
@@ -59,6 +79,10 @@
   .palette .pbtn{display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 4px;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer;font-family:var(--fl);font-size:10.5px;line-height:1.1;text-align:center;color:var(--ink);}
   .palette .pbtn:hover{border-color:var(--ink);}
   .palette .pbtn svg{width:42px;height:30px;}
+  .palette .pgrid-tpl{grid-template-columns:1fr;}
+  .palette .pbtn-tpl{align-items:flex-start;text-align:left;padding:9px 11px;gap:1px;}
+  .palette .pbtn-tpl .tpl-nom{font-size:13px;font-weight:600;color:var(--ink);}
+  .palette .pbtn-tpl .tpl-med{font-size:10.5px;color:var(--accent);letter-spacing:.4px;}
   .palette .ptitle{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
   .palette .ptitle b{font-size:12px;letter-spacing:1px;}
   .palette .pclose{border:0;background:none;font-size:16px;cursor:pointer;color:var(--muted);line-height:1;}
@@ -123,6 +147,20 @@
 @media (prefers-reduced-motion: reduce){
   .ck-overlay:not([hidden]) .ck-modal,#ck_nudge,#ck_success>div,.btn.on{animation:none;}
 }
+
+/* ===== modo compartir (?plan=ID): vitrina, no editor ===== */
+body.ck-solo-lectura .bar,
+body.ck-solo-lectura .info,
+body.ck-solo-lectura .palette,
+body.ck-solo-lectura #ck_nudge{display:none !important;}
+body.ck-solo-lectura .stage{padding:20px;}
+#ck_banda{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center;
+  padding:12px 18px;background:var(--paper);border-bottom:1px solid var(--line);
+  font-family:var(--fl);font-size:14px;color:var(--muted);letter-spacing:.3px;}
+#ck_banda b{color:var(--ink);letter-spacing:1px;}
+#ck_banda .ck-banda-nombre{color:var(--ink);font-weight:600;border-left:1px solid var(--line);padding-left:12px;}
+#ck_banda a{color:#fff;background:var(--accent);text-decoration:none;padding:7px 14px;
+  border-radius:8px;font-weight:600;font-size:13.5px;}
 
 .adv-hidden{display:none!important}
 #advToggle.on{background:var(--accent);color:#fff;border-color:var(--accent)}
@@ -348,6 +386,7 @@
       <a class="ck-link" id="ck_g_close">Cancelar</a>
       <button class="btn primary" id="ck_g_go">Guardar y enviarme →</button>
     </div>
+    <p style="margin:14px 0 0;text-align:center"><a class="ck-link" id="ck_borrar_link" href="#" style="font-size:11.5px">Borrar mis datos</a></p>
   </div>
 </div>
 
@@ -410,6 +449,22 @@
     <div class="ck-actions">
       <a class="ck-link" id="ck_nv_close">Mejor no</a>
       <button class="btn primary" id="ck_nv_go">Sí, empezar de nuevo →</button>
+    </div>
+  </div>
+</div>
+
+<!-- Derecho ARCO: llevarse sus datos de nuestra hoja, sin pedírselo a nadie -->
+<div class="ck-overlay" id="ck_modal_borrar" hidden>
+  <div class="ck-modal" role="dialog" aria-modal="true" aria-label="Borrar mis datos">
+    <h3>Borrar mis datos</h3>
+    <p class="sub">Esto elimina de nuestra hoja <b>todos</b> los proyectos guardados con ese correo, y su historial de versiones. <b class="accent">Es definitivo y no se puede deshacer.</b> Tu croquis seguirá en este navegador hasta que lo reemplaces.</p>
+    <div class="ck-field"><label>Correo</label><input type="email" id="ck_b_correo" placeholder="tucorreo@ejemplo.com" autocomplete="email"></div>
+    <div class="ck-field"><label>Clave</label>
+      <span class="ck-pass"><input type="password" id="ck_b_clave" placeholder="tu clave" autocomplete="current-password"><button type="button" class="ck-eye" data-pass="ck_b_clave" aria-label="Mostrar u ocultar la clave">👁</button></span>
+    </div>
+    <div class="ck-actions">
+      <a class="ck-link" id="ck_b_close">Mejor no</a>
+      <button class="btn warn" id="ck_b_go">Sí, borrar todo</button>
     </div>
   </div>
 </div>
@@ -570,9 +625,25 @@
       });
       html += '</div>';
     });
-    body.innerHTML = html;
+    // "Espacios de Aurum": plantillas curadas, un tap y queda completo.
+    // Se construyen desde ed.plantillas() — la definición vive en el motor.
+    let tpl = '<h4>Espacios de Aurum</h4><div class="pgrid pgrid-tpl">';
+    (ed.plantillas ? ed.plantillas() : []).forEach((t) => {
+      tpl += '<button class="pbtn pbtn-tpl" data-tpl="' + t.key + '">' +
+               '<span class="tpl-nom">' + t.label + '</span>' +
+               '<span class="tpl-med">' + t.w.toFixed(2) + ' × ' + t.h.toFixed(2) + ' m</span>' +
+             '</button>';
+    });
+    tpl += '</div>';
+    body.innerHTML = tpl + html;
     body.addEventListener('click', (e) => {
       const b = e.target.closest('.pbtn'); if (!b) return;
+      if (b.dataset.tpl) {
+        ed.placeTemplate(b.dataset.tpl);
+        document.getElementById('palette').classList.remove('open');
+        toast('Toca el plano: ahí queda tu ' + b.querySelector('.tpl-nom').textContent.toLowerCase());
+        return;
+      }
       ed.placeFurni(b.dataset.type);
       // se cierra sola: dejarla abierta tapaba justo el sitio donde vas a tocar
       document.getElementById('palette').classList.remove('open');

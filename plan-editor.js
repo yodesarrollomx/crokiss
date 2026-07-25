@@ -59,13 +59,20 @@
        (manijas, zonas tocables, plumas de selección) se multiplica por K.
        Antes las manijas eran de radio fijo en unidades de usuario: en un
        iPhone con el terreno ajustado quedaban en ~4 px y no se podían agarrar. */
+    /* Modo vitrina (?plan=ID): el motor NO debe tocar localStorage ni dejarse
+       editar. Sin esto, abrir un croquis compartido le PISABA al visitante su
+       propio borrador local — justo lo que CroKiss no puede permitirse. */
+    let soloLectura = false;
     let K = 1;
     let fantasma = null;
     let ultimaEtiqueta = { id: null, t: 0 };   // para detectar el doble toque
+    let chip = null;            // {x, y, texto} rótulo de medida junto al puntero
     let ultimoSnap = '';        // para vibrar una sola vez por celda de la retícula        // rectángulo punteado mientras se dibuja una habitación
     const HIT_PX = 22;    // radio tocable en px reales → 44 px de diámetro
     const VIS_PX = 9;     // radio visible en px reales
     const ACC = '#c75b39';
+    // familia literal para el PNG: fuera del documento, var(--fl) no existe
+    const FUENTE_PNG = "'Saira Semi Condensed', 'Helvetica Neue', Arial, sans-serif";
     /* Manija: un círculo invisible grande (lo que atrapa el dedo) y encima el
        círculo visible, pequeño y limpio. */
     function manija(cx, cy, kind, id, part, cursor, visPx) {
@@ -123,6 +130,7 @@
       geom = defaultGeom(); normalize();
     }
     function save() {
+      if (soloLectura) return;                 // una vitrina no escribe nada
       try { localStorage.setItem(KEY, JSON.stringify(geom)); } catch (e) {}
     }
     function pushSnapshot(s) {
@@ -612,6 +620,20 @@
       });
       g += el('g', {}, hit);
 
+      /* Chip de medida junto al puntero: mientras arrastras, escalas o giras,
+         dice exactamente cuánto llevas. Es un elemento del SVG que se vuelve a
+         dibujar en cada repintado (sin transiciones: aquí nada se anima) y
+         desaparece al soltar. */
+      if (chip) {
+        const cw = Math.max(46, chip.texto.length * 7.4 + 16) * K, ch = 21 * K;
+        const cxp = chip.x + 16 * K, cyp = chip.y - 16 * K;
+        g += el('rect', { x: cxp, y: cyp - ch / 2, width: cw, height: ch, rx: 5 * K,
+          fill: ACC, opacity: 0.95, 'pointer-events': 'none' });
+        g += el('text', { x: cxp + cw / 2, y: cyp, 'text-anchor': 'middle',
+          'dominant-baseline': 'middle', fill: '#fff', 'font-size': 12.5 * K,
+          'font-family': 'var(--fl)', 'font-weight': 600, 'pointer-events': 'none' }, chip.texto);
+      }
+
       // svg persistente: solo actualizamos su contenido (no recrear el nodo,
       // para no perder la captura del puntero durante el arrastre)
       ensureSvg();
@@ -643,6 +665,7 @@
     function userAt(cx, cy) { const v = currentVB(), r = svgEl.getBoundingClientRect(); return { x: v.x + (cx - r.left) / r.width * v.w, y: v.y + (cy - r.top) / r.height * v.h }; }
     /* Deshace lo que alcanzó a moverse un arrastre interrumpido. */
     function cancelaDrag() {
+      chip = null;
       if (!drag) return;
       if (drag.kind === 'drawwall') {
         geom.walls = geom.walls.filter((x) => x.id !== drag.id);   // el muro a medio dibujar se va
@@ -678,6 +701,7 @@
     function onAnyMove(ev) { if (ptrs.has(ev.pointerId)) ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY }); if (pinch) { movePinch(); ev.preventDefault(); } }
     function onAnyUp(ev) { ptrs.delete(ev.pointerId); if (pinch && ptrs.size < 2) endPinch(); }
     function onDown(ev) {
+      if (soloLectura) return;                 // en la vitrina no se edita nada
       if (ev.button != null && ev.button !== 0 && ev.pointerType === 'mouse') return;   // solo botón izquierdo del ratón
       ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
       if (ptrs.size >= 2) { startPinch(); ev.preventDefault(); return; }
@@ -697,6 +721,15 @@
         placing = null; svgEl.style.cursor = ''; render();
         ev.preventDefault(); return;
       }
+      // plantilla de "Espacios de Aurum": un tap la deja completa
+      if (placing && placing.indexOf('tpl:') === 0) {
+        const key = placing.slice(4);
+        const m = clientToM(ev.clientX, ev.clientY);
+        placing = null; svgEl.style.cursor = '';
+        ponPlantilla(key, m);
+        ev.preventDefault(); return;
+      }
+
       // modo HABITACIÓN: arrastra un rectángulo y salen sus 4 muros
       if (placing === 'room') {
         const m = clientToM(ev.clientX, ev.clientY);
@@ -887,6 +920,8 @@
       if (drag.kind === 'drawroom') {
         drag.moved = true;
         fantasma = { x1: drag.m0.x, y1: drag.m0.y, x2: snapV(m.x), y2: snapV(m.y) };
+        chip = { x: X(m.x), y: Y(m.y),
+                 texto: fmt(Math.abs(fantasma.x2 - fantasma.x1)) + ' × ' + fmt(Math.abs(fantasma.y2 - fantasma.y1)) };
         render(); ev.preventDefault(); return;
       }
 
@@ -896,6 +931,7 @@
         const ex = snapV(m.x), ey = snapV(m.y);
         if (Math.abs(ex - w.x1) >= Math.abs(ey - w.y1)) { w.x2 = ex; w.y2 = w.y1; }
         else { w.y2 = ey; w.x2 = w.x1; }
+        chip = { x: X(m.x), y: Y(m.y), texto: fmt(wallLen(w)) + ' m' };
         render(); ev.preventDefault(); return;
       }
 
@@ -915,6 +951,7 @@
       if (drag.moved) confirmaHistoria();       // ahora sí hubo mutación
 
       const o = drag.orig, obj = find(drag.kind, drag.id);
+      const puntoChip = { x: X(m.x), y: Y(m.y) };
       if (drag.kind === 'wall') {
         if (drag.part === 'body') {
           if (isV(o)) { const nx = snapV(o.x1 + dx); obj.x1 = nx; obj.x2 = nx; }
@@ -929,12 +966,14 @@
         }
         // el muro cambió de largo o de sitio: nadie se queda fuera de él
         (drag.vanos || []).forEach((v) => clampVano(v.o, obj));
+        chip = { x: puntoChip.x, y: puntoChip.y, texto: fmt(wallLen(obj)) + ' m' };
       } else if (drag.kind === 'window' || drag.kind === 'slider') {
         const along = obj.wall === 'h' ? dx : dy;
         if (drag.part === 'body') { const len = o.b - o.a; let na = snapV(o.a + along); obj.a = na; obj.b = round2(na + len); }
         else if (drag.part === 'a') { obj.a = Math.min(snapV(o.a + along), round2(obj.b - 0.2)); }
         else if (drag.part === 'b') { obj.b = Math.max(snapV(o.b + along), round2(obj.a + 0.2)); }
         clampVano(obj, muroDe(obj));            // no se sale de su muro anfitrión
+        chip = { x: puntoChip.x, y: puntoChip.y, texto: fmt(obj.b - obj.a) + ' m' };
       } else if (drag.kind === 'door') {
         if (drag.part === 'w') {
           const dAlong = (m.x - o.hx) * o.along[0] + (m.y - o.hy) * o.along[1];
@@ -942,6 +981,7 @@
         } else if (obj.wall === 'h') obj.hx = snapV(o.hx + dx);
         else obj.hy = snapV(o.hy + dy);
         clampVano(obj, muroDe(obj));
+        chip = { x: puntoChip.x, y: puntoChip.y, texto: fmt(obj.w) + ' m' };
       } else if (drag.kind === 'label') {
         obj.cx = snapV(o.cx + dx); obj.cy = snapV(o.cy + dy);
       } else if (drag.kind === 'furn') {
@@ -966,16 +1006,19 @@
           const cLocal = { x: obj.w / 2, y: obj.h / 2 };
           obj.cx = round2(ancla.x + cLocal.x * cos - cLocal.y * sin);
           obj.cy = round2(ancla.y + cLocal.x * sin + cLocal.y * cos);
+          chip = { x: puntoChip.x, y: puntoChip.y, texto: fmt(obj.w) + ' × ' + fmt(obj.h) };
         } else if (drag.part === 'rotate') {
           const ang = Math.atan2(m.y - o.cy, m.x - o.cx) * 180 / Math.PI + 90;
           let r = Math.round(ang / 15) * 15; // pasos de 15°
           obj.rot = ((r % 360) + 360) % 360;
+          chip = { x: puntoChip.x, y: puntoChip.y, texto: obj.rot + '°' };
         }
       }
       render();
       ev.preventDefault();
     }
     function onUp(ev) {
+      chip = null;                       // el rótulo vive solo mientras arrastras
       if (drag && drag.kind === 'drawroom') {
         const f = fantasma; fantasma = null;
         const x1 = Math.min(f.x1, f.x2), x2 = Math.max(f.x1, f.x2);
@@ -1018,6 +1061,7 @@
       return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
     }
     function onKey(ev) {
+      if (soloLectura) return;
       if (isTyping(ev)) return;                       // no atajos mientras se escribe en un campo
       if (ev.key === 'Escape') { if (placing) { placing = null; if (svgEl) svgEl.style.cursor = ''; render(); ev.preventDefault(); } return; }
       if ((ev.key === 'z' || ev.key === 'Z') && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); if (ev.shiftKey) redoAct(); else undo(); return; }
@@ -1249,6 +1293,67 @@
       });
     }
 
+    /* ============ Espacios de Aurum (plantillas curadas) ============
+       Definidas como DATOS, no como código repetido: agregar una plantilla es
+       agregar una entrada aquí. Cada una son muros + muebles + etiqueta
+       normales, con la misma mecánica que "+ Habitación".
+       Los muebles van en coordenadas relativas a la esquina superior izquierda. */
+    const PLANTILLAS = {
+      recamara: {
+        label: 'Recámara', etiqueta: 'Recámara', w: 3.00, h: 3.00,
+        muebles: [
+          { type: 'cama_matrimonial', dx: 1.50, dy: 1.10, rot: 0 },
+          { type: 'buro',             dx: 0.35, dy: 0.30, rot: 0 },
+          { type: 'closet',           dx: 1.50, dy: 2.75, rot: 0 }
+        ]
+      },
+      bano: {
+        label: 'Baño', etiqueta: 'Baño', w: 1.50, h: 2.40,
+        muebles: [
+          { type: 'wc',       dx: 0.40, dy: 0.45, rot: 0 },
+          { type: 'lavabo',   dx: 1.10, dy: 0.40, rot: 0 },
+          { type: 'regadera', dx: 0.75, dy: 1.85, rot: 0 }
+        ]
+      },
+      cocina: {
+        label: 'Cocina lineal', etiqueta: 'Cocina', w: 3.00, h: 2.20,
+        muebles: [
+          { type: 'estufa', dx: 0.80, dy: 0.30, rot: 0 },
+          { type: 'tarja',  dx: 1.80, dy: 0.30, rot: 0 },
+          { type: 'refri',  dx: 2.60, dy: 0.35, rot: 0 },
+          { type: 'barra',  dx: 1.50, dy: 1.70, rot: 0 }
+        ]
+      }
+    };
+    function listaPlantillas() {
+      return Object.keys(PLANTILLAS).map(function (k) {
+        const t = PLANTILLAS[k];
+        return { key: k, label: t.label, w: t.w, h: t.h };
+      });
+    }
+    /* Coloca una plantilla con la esquina superior izquierda en m. */
+    function ponPlantilla(key, m) {
+      const t = PLANTILLAS[key]; if (!t) return null;
+      const x1 = snapV(m.x), y1 = snapV(m.y);
+      const x2 = round2(x1 + t.w), y2 = round2(y1 + t.h);
+      pushHistory();
+      [[x1, y1, x2, y1], [x2, y1, x2, y2], [x1, y2, x2, y2], [x1, y1, x1, y2]]
+        .forEach(function (c) {
+          geom.walls.push({ id: nid('w'), type: 'int', x1: c[0], y1: c[1], x2: c[2], y2: c[3], re: [] });
+        });
+      (t.muebles || []).forEach(function (mu) {
+        const cat = (window.PlanFurniture && window.PlanFurniture.CATALOG[mu.type]) || { w: 1, h: 1 };
+        geom.furniture.push({ id: nid('f'), type: mu.type,
+          cx: round2(x1 + mu.dx), cy: round2(y1 + mu.dy),
+          w: cat.w, h: cat.h, rot: mu.rot || 0 });
+      });
+      const et = { id: nid('t'), cx: round2(x1 + t.w / 2), cy: round2(y1 + t.h / 2), text: t.etiqueta };
+      geom.labels.push(et);
+      sel = { kind: 'label', id: et.id };
+      save(); render();
+      return et;
+    }
+
     function startPlace(type) { placing = type; if (svgEl) svgEl.style.cursor = 'crosshair'; sel = null; render(); }
 
     /* Una habitación son 4 muros interiores normales + una etiqueta normal: el
@@ -1400,9 +1505,12 @@
     this.reinforceAll = reinforceAll;
     this.rotateSel = rotateSel;
     this.placeRoom = () => startPlace('room');
+    this.plantillas = listaPlantillas;
+    this.placeTemplate = (key) => startPlace('tpl:' + key);
     this.placeFurni = (type) => startPlace('furn:' + type);
     this.placeLabel = (text) => startPlace('label:' + String(text || 'Espacio'));
     this.isPlacing = () => !!placing;
+    this.setSoloLectura = (v) => { soloLectura = !!v; sel = null; render(); };
     this.cancelPlace = () => { if (placing) { placing = null; if (svgEl) svgEl.style.cursor = ''; render(); } };
     // exportar el croquis como PNG (para compartir por WhatsApp)
     this.exportPNG = (cb) => {
@@ -1415,12 +1523,33 @@
         sel = selPrevio; renderNow();
         svg.setAttribute('viewBox', '0 0 ' + VW + ' ' + VH);
         svg.setAttribute('width', VW); svg.setAttribute('height', VH);
+        /* El clon sale del documento: ahí `var(--fl)` ya no existe y todos los
+           textos caían a la sans genérica del sistema. Se sustituye por la
+           familia literal con su cadena de respaldo. */
+        svg.querySelectorAll('[font-family]').forEach(function (n) {
+          if (/var\(--fl\)/.test(n.getAttribute('font-family') || '')) n.setAttribute('font-family', FUENTE_PNG);
+        });
+        svg.setAttribute('style', 'font-family:' + FUENTE_PNG);
         const xml = new XMLSerializer().serializeToString(svg);
         const img = new Image();
+        const PIE = 34;                                    // franja del pie de firma
         img.onload = function () {
           const sc = 2, cv = document.createElement('canvas');
-          cv.width = VW * sc; cv.height = VH * sc;
-          const ctx = cv.getContext('2d'); ctx.fillStyle = '#fbfaf8'; ctx.fillRect(0, 0, cv.width, cv.height); ctx.scale(sc, sc); ctx.drawImage(img, 0, 0);
+          cv.width = VW * sc; cv.height = (VH + PIE) * sc;
+          const ctx = cv.getContext('2d');
+          ctx.fillStyle = '#fbfaf8'; ctx.fillRect(0, 0, cv.width, cv.height);
+          ctx.scale(sc, sc);
+          ctx.drawImage(img, 0, 0);
+          // Firma discreta al pie: es lo que viaja por WhatsApp de mano en mano.
+          // Un pie, no una marca de agua encima del dibujo.
+          ctx.strokeStyle = '#e2e0db'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(24, VH + 6); ctx.lineTo(VW - 24, VH + 6); ctx.stroke();
+          ctx.font = '600 15px ' + FUENTE_PNG;
+          ctx.fillStyle = '#16181d'; ctx.textBaseline = 'middle';
+          ctx.fillText('Hecho con CroKiss', 24, VH + 21);
+          const w1 = ctx.measureText('Hecho con CroKiss').width;
+          ctx.font = '400 14px ' + FUENTE_PNG; ctx.fillStyle = '#6b6256';
+          ctx.fillText(' · Aurum Arquitectos · alexpueblag.github.io/crokiss', 24 + w1, VH + 21);
           cv.toBlob(function (blob) { cb && cb(blob); }, 'image/png');
         };
         img.onerror = function () { cb && cb(null); };

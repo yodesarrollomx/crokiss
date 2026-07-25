@@ -139,11 +139,27 @@ Solo front: **no requiere re-desplegar nada.**
 - **Primeros 10 segundos:** (a) **mini-vista del lote** en el modal de terreno, que se redibuja al teclear y muestra la superficie; (b) **nota de lápiz dentro del lienzo** ("Toca + Muro y arrastra para dividir tu casa") — es un elemento del render, no un div, y deja de dibujarse en cuanto el usuario traza algo suyo. Va **cerca del borde superior, no en el centro geométrico**: en un terreno de 20 m de fondo el centro cae fuera de la pantalla y no se veía; (c) **pulso suave** en la herramienta activa mientras espera; (d) `navigator.vibrate(8)` al caer en la retícula, con guard de existencia.
 - **Micro-entradas** de 170-180 ms **solo** en modales, nudge, éxito y toast, con `prefers-reduced-motion`. **Dentro del SVG no se anima nada**: el lienzo es papel.
 
+### P6 (2026-07-25) — alma artesanal II
+
+⚠️ **Requiere re-desplegar `Code.gs`** (caducidad de enlaces + borrado ARCO).
+
+- **PNG firmado y con su tipografía.** Pie discreto *"Hecho con CroKiss · Aurum Arquitectos · alexpueblag.github.io/crokiss"* dibujado en el canvas, **no** una marca de agua sobre el dibujo. Y al clonar el SVG se sustituye `var(--fl)` por la familia literal: fuera del documento esa variable no existe y **todo el PNG salía en sans genérica**.
+- **Identidad**: favicon SVG inline (el punto terracota), `theme-color`, OG completo, `manifest.json` instalable y `preconnect` a fonts.gstatic.com. **`assets/og.png` (1200×630) está generada con el propio motor**: es la lámina real de un croquis de muestra, junto al claim y la dirección.
+- **Enlace compartible `?plan=ID`**: vitrina sin barra, sin paleta y sin barra de info, con banda artesanal *"Croquis hecho en Cro·Kiss · Dibuja el tuyo gratis →"*. Botón **🔗 Compartir enlace** en la pantalla de éxito. Los enlaces sin credenciales **caducan a los 60 días** (`no_disponible`, con mensaje amable); el dueño entra cuando quiera con su clave. Nunca expone correo ni clave.
+  > 🐛 **Bug atrapado aquí:** cargar el croquis compartido llamaba a `save()` y **le pisaba al visitante su propio borrador local**. Por eso el motor ahora tiene modo solo lectura de verdad (`ed.setSoloLectura`): en vitrina no escribe en `localStorage` ni se deja editar. Está probado por comportamiento.
+- **"Borrar mis datos" (ARCO)**: `mode:'borrar'` elimina todas las filas de ese correo en Planos e Historial, exige correo + clave válidos, va con lock, rate-limit 5/h y **fail cerrado** (si las credenciales no abren ni una fila, no borra nada). Enlace discreto en el modal de guardar + confirmación que dice que es definitivo.
+- **Espacios de Aurum** (plantillas curadas, definidas como **datos**): Recámara 3.00×3.00, Baño 1.50×2.40, Cocina lineal 3.00×2.20. Un tap coloca muros + muebles + etiqueta ya nombrada.
+- **Chip de medida** junto al puntero durante arrastre/escala/rotación (`0.90 m`, `1.60 × 2.00`, `45°`). Es un elemento del SVG re-dibujado, sin transiciones, y muere al soltar.
+
 ## Pendiente (backend, para segunda ronda — NO shippeado por riesgo)
 
-- **Hasheo de la clave**: hoy se guarda/transmite en claro. ⚠️ **Ya se implementó una vez** (columnas `clave_hash`+`salt`, SHA-256 con `Utilities.computeDigest`, fallback y migración) en el commit **`ec6d029`**, y `975b699` lo revirtió por accidente al subir un `Code.gs` viejo. **No lo reescribas desde cero:** parte de `git show ec6d029:Code.gs` y fusiónalo sobre el `Code.gs` actual. Sigue pendiente probarlo con una cuenta de prueba antes de activar: hacerlo mal bloquea a los leads que regresan.
-- Poda del Historial (crece sin tope) e índice `plan_id→fila` para evitar el escaneo lineal a escala.
-- Respaldo diario de la hoja + alerta al acercarse a la cuota de correo.
+Todo lo de esta lista **ya se hizo** en P1–P6: hasheo de clave con migración (P2), poda del Historial y búsqueda por TextFinder (P1), y alerta de salud (`healthPing`, P1). Se conserva el respaldo semanal (`respaldoSemanal`) del trigger de junio.
+
+**Lo que queda pendiente y depende de ti, no del código:**
+1. **Pegar el `Code.gs` y re-desplegar** (ver Despliegue). Hasta entonces el front funciona contra el backend viejo, pero no hay hash, ni pestaña Eventos, ni borrado ARCO, ni caducidad de enlaces.
+2. **Poner el número de WhatsApp** en `CONFIG.WHATSAPP` de `crokiss-cloud.js` **y** de `Code.gs` (hoy `52XXXXXXXXXX`).
+3. **Crear los 2 triggers** (`podarHistorial` diario, `healthPing` por horas) — instrucciones en la cabecera de `Code.gs`.
+4. Opcional: SPF/DKIM/DMARC del dominio para que el correo salga desde `direccion@aurumarquitectos.com` (pasos comentados en `_sendPlanEmail`).
 
 ## Stack
 

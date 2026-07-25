@@ -77,6 +77,9 @@ var CONFIG = {
   MAX_EVENT_CLIENTE: 120,          // eventos por client_id / hora
   MAX_EVENT_LOTE:    20,           // eventos por POST
 
+  DIAS_COMPARTIR:   60,            // un enlace sin credenciales caduca a los 60 días
+  MAX_BORRAR_CORREO: 5,            // peticiones de borrado por correo / hora
+
   HIST_VERSIONES:   20,            // versiones a conservar por plan_id
   HIST_DIAS:        90             // antigüedad máxima en Historial
 };
@@ -185,9 +188,15 @@ function _abrirPlan(idRaw, correoRaw, claveRaw) {
                            String(correoRaw || '').toLowerCase(), String(claveRaw || ''));
   if ((correoRaw || claveRaw) && !authed) return { ok: false, error: 'no_autorizado' };
 
-  // Abrir sin credenciales = vino del enlace del correo. Es el único punto del
-  // embudo que el cliente no puede medir por sí mismo.
-  if (!correoRaw && !claveRaw) _eventoServidor('volvio_por_correo', id);
+  // Abrir sin credenciales = vino del enlace del correo o de uno compartido.
+  if (!correoRaw && !claveRaw) {
+    _eventoServidor('volvio_por_correo', id);
+    // Un enlace que circula sin clave no puede quedar abierto para siempre:
+    // caduca a los 60 días. Con credenciales, el dueño entra cuando quiera.
+    var ts = row.ts ? new Date(row.ts).getTime() : 0;
+    if (ts && (new Date().getTime() - ts) > CONFIG.DIAS_COMPARTIR * 24 * 3600 * 1000)
+      return { ok: false, error: 'no_disponible' };
+  }
 
   // El blob se lee AQUÍ y solo aquí: una celda, no la hoja entera.
   var geomStr = _readGeom(sh, meta, rowIdx);
@@ -234,6 +243,16 @@ function doPost(e) {
       return _json({ ok: true, count: lista.length, items: lista });
     }
     if (mode === 'plan') return _json(_abrirPlan(body.id, correo, clave));
+
+    /* Derecho ARCO: el usuario puede llevarse sus datos de la hoja. Exige
+       credenciales válidas, va con lock (borra filas) y es definitivo. */
+    if (mode === 'borrar') {
+      if (!_rateOk(_ckey('del_', correo), CONFIG.MAX_BORRAR_CORREO, 3600))
+        return _json({ ok: false, error: 'demasiados_intentos' });
+      var lockB = LockService.getScriptLock();
+      try { lockB.waitLock(20000); return _json(_borraTodo(correo, clave)); }
+      finally { try { lockB.releaseLock(); } catch (_) {} }
+    }
 
     var geom = body.geom;
     if (!geom || !geom.walls) return _json({ ok: false, error: 'plano_invalido' });
@@ -358,6 +377,45 @@ function _guardarFila(mode, correo, clave, geomStr, body) {
   }
 
   return { planId: planId, version: version, isNew: isNew, nombre: nombre, planName: planName };
+}
+
+/* Borra TODAS las filas de un correo en Planos e Historial. Fail cerrado: si
+   las credenciales no abren ni una sola fila, no se borra nada. */
+function _borraTodo(correo, clave) {
+  var sh = _sheet(CONFIG.SHEET_PLANOS);
+  var meta = _meta(sh), col = meta.col;
+  var esperado = _hashClave(correo, clave);
+
+  var mias = [], autorizado = false;
+  for (var i = 0; i < meta.data.length; i++) {
+    if (String(meta.data[i][col.correo]).toLowerCase() !== correo) continue;
+    mias.push(i + 2);
+    if (_match(meta.data[i], col, clave, esperado)) autorizado = true;
+  }
+  if (!mias.length) return { ok: false, error: 'no_encontrado' };
+  if (!autorizado)  return { ok: false, error: 'no_autorizado' };
+
+  var planIds = mias.map(function (f) { return String(meta.data[f - 2][col.plan_id]); });
+  mias.sort(function (a, b) { return b - a; });          // de abajo hacia arriba
+  for (var k = 0; k < mias.length; k++) sh.deleteRow(mias[k]);
+
+  // y su rastro en el Historial
+  var borradasHist = 0;
+  try {
+    var hist = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_HISTORIAL);
+    if (hist && hist.getLastRow() > 1) {
+      var hd = hist.getRange(2, 1, hist.getLastRow() - 1, 5).getValues();   // sin el blob
+      var fuera = [];
+      for (var j = 0; j < hd.length; j++)
+        if (planIds.indexOf(String(hd[j][1])) >= 0 ||
+            String(hd[j][3]).toLowerCase() === correo) fuera.push(j + 2);
+      fuera.sort(function (a, b) { return b - a; });
+      for (var q = 0; q < fuera.length; q++) { hist.deleteRow(fuera[q]); borradasHist++; }
+    }
+  } catch (err) { console.error('borrado de historial: ' + err); }
+
+  _eventoServidor('borro_sus_datos', String(mias.length));
+  return { ok: true, planos: mias.length, historial: borradasHist };
 }
 
 /* ======================== EMBUDO (pestaña Eventos) ========================
