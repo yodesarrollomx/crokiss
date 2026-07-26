@@ -207,6 +207,22 @@ Reglas de aparición (`ck_guia_v1` en localStorage, `ck_guia_sesion` en sessionS
 - Eventos del embudo: `guia_vista`, `guia_continuar` (extra: `no_mostrar`/`normal`), `guia_reabierta`.
 - Respeta `prefers-reduced-motion` (dibujo quieto en estado final). Vive dentro de `index.html` (mismo script en línea: el harness exige exactamente 1).
 
+### Condiciones del comité de inversión — aplicadas (2026-07-26)
+
+Un panel de 8 lentes (producto, growth, UX público general, técnica, privacidad, negocio, marca, escéptico) revisó todo; sus 6 hallazgos factuales se verificaron contra el código y se aplicaron:
+
+- **El correo ENTREGA el plano**: el cliente captura el PNG (`capturaPNG`, tope 2.5 s y 1.5 MB — el guardado jamás lo espera) y el backend lo adjunta al correo. Asunto con el nombre del proyecto («Casa Sol»).
+- **Aviso interno de lead nuevo** a `direccion@` en el momento (`_avisaLeadNuevo`, fail-open, tope 60/6 h). Antes nadie se enteraba hasta abrir la hoja.
+- **WhatsApp opcional** del lead: campo `ck_g_tel` tras el correo, columna `telefono` **al final** del esquema (no se mueve nada), saneado, y viaja en el aviso interno.
+- **Aviso de privacidad propio**: `aviso-privacidad.html` en el repo (el dominio aurumarquitectos.com estaba con SSL roto y 404). LFPDPPP: responsable, datos, finalidades, ARCO con el botón "Borrar mis datos".
+- **`sync` con límite propio** (`sy_` 360/h): editar una hora seguida ya no congela el autosync al agotar el cupo de `save` (30/h). `MAX_PLAN_ID` 30→120: un enlace compartido en un grupo ya no se auto-bloquea.
+- **La vitrina deja de contaminar la métrica**: `?plan` manda `src=share` → evento `vista_compartida`; `volvio_por_correo` vuelve a medir SOLO retornos del correo.
+- **Clave a un toque**: botón Copiar en la pantalla de éxito (con caída a copiado manual). **Pill y toast accesibles** (`aria-live`) y el pill recortado del móvil se lee completo con un toque.
+
+Verificado en vivo con sink local: el POST de guardado llegó con `png` (494 KB) y `telefono`, la pantalla de éxito copia la clave, y el embudo registró `guia_vista → terreno_creado → primer_elemento → modal_guardar_abierto → guardado_ok`.
+
+⚠️ **Requiere pegar `Code.gs` en Apps Script otra vez** (Versión nueva sobre la implementación existente). El front ya publicado es compatible con el backend anterior: los campos nuevos (`png`, `telefono`, `src`) simplemente se ignoran hasta el re-despliegue.
+
 ## Pendiente (backend, para segunda ronda — NO shippeado por riesgo)
 
 Todo lo de esta lista **ya se hizo** en P1–P6: hasheo de clave con migración (P2), poda del Historial y búsqueda por TextFinder (P1), y alerta de salud (`healthPing`, P1). Se conserva el respaldo semanal (`respaldoSemanal`) del trigger de junio.

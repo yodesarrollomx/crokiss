@@ -174,6 +174,8 @@ function entorno(opciones) {
     Utilities: {
       getUuid: () => 'aaaaaaaa-bbbb-cccc-dddd-' + String(Math.random()).slice(2, 14),
       base64Encode: (b) => Buffer.from(b).toString('base64'),
+      base64Decode: (b64) => Array.from(Buffer.from(String(b64), 'base64')),
+      newBlob: (bytes, mime, nombre) => ({ bytes, mime, nombre, esBlob: true }),
       computeDigest: (alg, s) =>
         crypto.createHash(alg === 'SHA_256' ? 'sha256' : 'md5').update(String(s)).digest(),
       DigestAlgorithm: { MD5: 'MD5', SHA_256: 'SHA_256' },
@@ -443,7 +445,10 @@ grupo('Correo: solo a planos reales y con clave inofensiva');
   const r2 = post(e.sandbox, { mode: 'save', correo: 'a@x.com', clave: 'clave-uno', geom: GEOM_VACIO });
   ok(r2.ok === true, 'un plano vacío SÍ se guarda');
   ok(r2.emailed === false, 'pero NO dispara correo (así se bombardeaba un buzón ajeno)');
-  ok(e.correosEnviados.length === 0, 'y de verdad no salió ningún correo');
+  ok(e.correosEnviados.filter((c) => c.to === 'a@x.com').length === 0,
+     'y al usuario de verdad no le salió ninguno');
+  ok(e.correosEnviados.filter((c) => c.to === 'direccion@aurumarquitectos.com').length === 1,
+     'aunque Aurum SÍ recibe su aviso: un lead con plano vacío sigue siendo un lead');
 
   e = mk();
   const r3 = post(e.sandbox, { mode: 'save', correo: 'a@x.com', clave: 'Da clic aquí <b>ya</b>!!', geom: GEOM_REAL });
@@ -485,6 +490,84 @@ grupo('Correo: solo a planos reales y con clave inofensiva');
   const e2 = entorno({ aliasOk: false, hojas: { Planos: hojaFalsa('Planos', []), Historial: hojaFalsa('Historial', [], ['ts','plan_id','plan_name','correo','version','geom_json']) } });
   post(e2.sandbox, { mode: 'save', correo: 'a@x.com', clave: 'clave-uno', geom: GEOM_REAL });
   ok(e2.correosEnviados[0] && e2.correosEnviados[0].via === 'MailApp', 'sin alias, cae a MailApp y el correo igual sale');
+}
+
+grupo('Condiciones del comité de inversión (26-jul)');
+{
+  // --- El correo ENTREGA el plano: PNG adjunto ---
+  const mk = (op) => entorno(Object.assign({ hojas: { Planos: hojaFalsa('Planos', []),
+    Historial: hojaFalsa('Historial', [], ['ts','plan_id','plan_name','correo','version','geom_json']) } }, op || {}));
+  const PNG_OK = 'data:image/png;base64,' + Buffer.from('png-de-mentira').toString('base64');
+
+  let e = mk();
+  let r = post(e.sandbox, { mode: 'save', correo: 'a@x.com', clave: 'clave-uno', plan_name: 'Casa Sol', geom: GEOM_REAL, png: PNG_OK });
+  ok(r.ok && r.emailed === true, 'guardar con PNG manda el correo');
+  const alUsuario = e.correosEnviados.filter((c) => (c.to || '') === 'a@x.com');
+  ok(alUsuario.length === 1 && Array.isArray(alUsuario[0].attachments) && alUsuario[0].attachments.length === 1,
+     'y el correo lleva EL PLANO adjunto (ya no solo la clave)');
+  ok(/«Casa Sol»/.test(alUsuario[0].subject || ''), 'el asunto lleva el nombre del proyecto del usuario',
+     alUsuario[0].subject);
+
+  e = mk();
+  r = post(e.sandbox, { mode: 'save', correo: 'a@x.com', clave: 'clave-uno', geom: GEOM_REAL,
+                        png: 'data:image/png;base64,' + 'A'.repeat(4100000) });
+  ok(r.ok && r.emailed === true, 'un PNG que pesa de más NO tumba el correo');
+  ok((e.correosEnviados.find((c) => c.to === 'a@x.com').attachments || []).length === 0,
+     'solo sale sin la imagen');
+
+  e = mk();
+  r = post(e.sandbox, { mode: 'save', correo: 'a@x.com', clave: 'clave-uno', geom: GEOM_REAL,
+                        png: 'javascript:alert(1)' });
+  ok(r.ok && (e.correosEnviados.find((c) => c.to === 'a@x.com').attachments || []).length === 0,
+     'un png que no es dataURL de imagen se ignora');
+
+  // --- Aviso de lead nuevo a Aurum ---
+  e = mk();
+  post(e.sandbox, { mode: 'save', correo: 'lead@x.com', clave: 'clave-uno', nombre: 'Pati',
+                    telefono: '662 123 4567', plan_name: 'Mi refugio', geom: GEOM_REAL });
+  const alertas = e.correosEnviados.filter((c) => c.to === 'direccion@aurumarquitectos.com');
+  ok(alertas.length === 1, 'un lead nuevo dispara UN aviso a direccion@');
+  ok(/lead nuevo/.test(alertas[0].subject || ''), 'con asunto inconfundible', alertas[0].subject);
+  ok(/lead@x\.com/.test(alertas[0].body || '') && /662 123 4567/.test(alertas[0].body || ''),
+     'y trae correo y WhatsApp del prospecto para contactarlo');
+  // el mismo dueño actualiza: NO se repite el aviso
+  post(e.sandbox, { mode: 'save', plan_id: JSON.parse(e.correosEnviados.length && '0') || undefined,
+                    correo: 'lead@x.com', clave: 'clave-uno', plan_name: 'Mi refugio', geom: GEOM_REAL });
+  ok(e.correosEnviados.filter((c) => c.to === 'direccion@aurumarquitectos.com').length === 1,
+     'actualizar el mismo proyecto NO vuelve a avisar');
+
+  // --- Teléfono opcional del lead ---
+  e = mk();
+  post(e.sandbox, { mode: 'save', correo: 'tel@x.com', clave: 'clave-uno', geom: GEOM_REAL,
+                    telefono: '<script>66-2) 999 8877' });
+  const planos = e.hojas.Planos;
+  const cTel = planos.colDe('telefono');
+  ok(cTel > 0, 'existe la columna telefono');
+  ok(cTel === planos.headers().length, 'y se agrega AL FINAL (después de salt): el esquema vivo no se mueve');
+  ok(String(planos.celdas[1][cTel - 1]) === '66-2) 999 8877'.replace(/[^0-9+() -]/g, '').slice(0, 20) ||
+     /^[0-9+() -]{0,20}$/.test(String(planos.celdas[1][cTel - 1])),
+     'el teléfono se guarda saneado (solo dígitos y signos)', String(planos.celdas[1][cTel - 1]));
+  ok(String(planos.celdas[1][cTel - 1]).indexOf('script') < 0, 'sin rastro de HTML');
+
+  // --- sync con límite propio: editar una hora ya no congela el sync ---
+  e = mk();
+  for (let i = 0; i <= e.sandbox.CONFIG.MAX_SAVE_CORREO; i++)
+    post(e.sandbox, { mode: 'save', correo: 'activo@x.com', clave: 'clave-uno', plan_name: 'P' + i, geom: GEOM_REAL });
+  const pid = String(e.hojas.Planos.celdas[1][1]);
+  const rs = post(e.sandbox, { mode: 'sync', plan_id: pid, correo: 'activo@x.com', clave: 'clave-uno', geom: GEOM_REAL });
+  ok(rs.ok === true, 'con el cupo de GUARDAR agotado, el autosync sigue subiendo cambios');
+  ok(e.sandbox.CONFIG.MAX_SYNC_CORREO >= 300, 'y su tope aguanta una sesión larga de edición');
+  ok(e.sandbox.CONFIG.MAX_PLAN_ID >= 120, 'un enlace compartido ya no se auto-bloquea a las 30 vistas/h');
+
+  // --- la vitrina deja de contaminar la métrica de retorno ---
+  e = entorno({ hojas: { Planos: hojaFalsa('Planos', [filaMigrada('ckV', 'v@x.com', 'clave-uno')]) } });
+  resp(e.sandbox.doGet({ parameter: { action: 'plan', id: 'ckV', src: 'share' } }));
+  resp(e.sandbox.doGet({ parameter: { action: 'plan', id: 'ckV' } }));
+  const evs = (e.hojas.Eventos ? e.hojas.Eventos.celdas.slice(1) : []).map((f) => String(f[2]));
+  ok(evs.indexOf('vista_compartida') >= 0, 'una vista de la vitrina se registra como vista_compartida');
+  ok(evs.indexOf('volvio_por_correo') >= 0, 'y el enlace del correo sigue contando como volvio_por_correo');
+  ok(evs.filter((x) => x === 'volvio_por_correo').length === 1,
+     'sin que la vitrina infle esa métrica (1 y 1, no 2 y 0)');
 }
 
 grupo('Tope de 45.000 (la bomba de tiempo de Sheets)');
@@ -573,7 +656,9 @@ grupo('El correo sale FUERA del lock');
   const r = post(sandbox, { mode: 'save', correo: 'ana@x.com', clave: 'clave-uno', geom: GEOM_REAL });
   ok(r.ok && r.emailed === true, 'un guardado nuevo manda el correo');
   ok(correoConLock === false, 'el lock YA estaba liberado cuando se mandó el correo');
-  ok(correosEnviados.length === 1, 'se mandó exactamente un correo');
+  ok(correosEnviados.filter((c) => c.to === 'ana@x.com').length === 1, 'un correo al usuario');
+  ok(correosEnviados.filter((c) => c.to === 'direccion@aurumarquitectos.com').length === 1,
+     'y el aviso interno de lead — los dos fuera del lock');
 }
 
 grupo('_canEmail: fail-closed y cuota');

@@ -62,8 +62,15 @@ var CONFIG = {
   MAX_EMAIL_CORREO: 2,             // máx. correos a un mismo destinatario / ventana 6 h
   MAX_EMAIL_DIA:    40,            // tope global de correos / ventana 6 h (cuota MailApp)
   MAX_LIST_CORREO:  40,            // máx. consultas 'list' por correo / hora
-  MAX_PLAN_ID:      30,            // máx. aperturas de un mismo plan_id / hora
-  MAX_SAVE_CORREO:  30,            // máx. guardados por correo / hora
+  MAX_PLAN_ID:      120,           // máx. aperturas de un mismo plan_id / hora
+                                   // (subido de 30: un croquis compartido que circula
+                                   //  en un grupo de WhatsApp se auto-bloqueaba)
+  MAX_SAVE_CORREO:  30,            // máx. GUARDADOS explícitos por correo / hora
+  MAX_SYNC_CORREO:  360,           // máx. autosync por correo / hora — separado del de
+                                   // guardar: una persona editando una hora seguida
+                                   // alcanzaba las 30 y su sync se congelaba
+  MAX_PNG_CHARS:    4000000,       // tope del PNG adjunto (~3 MB): más grande se ignora
+  MAX_ALERTAS_6H:   60,            // tope de avisos de lead nuevo por ventana de 6 h
 
   MAX_EVENT_CLIENTE: 120,          // eventos por client_id / hora
   MAX_EVENT_LOTE:    20,           // eventos por POST
@@ -81,7 +88,8 @@ var CONFIG = {
    hasheo. Reordenarlas dejaría fuera a todos los usuarios ya migrados. */
 var HEADERS = ['ts','plan_id','client_id','nombre','correo','clave',
                'plan_name','version','marketing','source','geom_json',
-               'clave_hash','salt'];
+               'clave_hash','salt','telefono'];   // telefono SIEMPRE al final:
+               // _ensureHeader agrega columnas nuevas al final sin mover nada
 
 /* ============ SEGURIDAD DE LA CLAVE ============
  * ⚠️ ESTE ESQUEMA ES INTOCABLE. Es el que ya corre en producción:
@@ -162,7 +170,7 @@ function doGet(e) {
 
     if (action === 'ping') return _json({ ok: true, pong: true });
 
-    if (action === 'plan') return _json(_abrirPlan(p.id, p.correo, p.clave));
+    if (action === 'plan') return _json(_abrirPlan(p.id, p.correo, p.clave, p.src));
 
     // 'list' (default): proyectos que coinciden con correo + clave (anti-fuerza-bruta)
     var lc = String(p.correo || '').toLowerCase();
@@ -180,7 +188,7 @@ function doGet(e) {
 /* Abrir un plano por id. Compartido por doGet(action=plan) y doPost(mode=plan):
    la ruta POST existe para que la clave NO viaje en la barra de direcciones
    (donde queda en el historial del navegador y en los logs del servidor). */
-function _abrirPlan(idRaw, correoRaw, claveRaw) {
+function _abrirPlan(idRaw, correoRaw, claveRaw, srcRaw) {
   var id = String(idRaw || '').slice(0, 60);
   if (!id) return { ok: false, error: 'no_encontrado' };
   // Anti-abuso: sin esto, cualquiera agota la cuota diaria golpeando esta ruta.
@@ -197,9 +205,11 @@ function _abrirPlan(idRaw, correoRaw, claveRaw) {
                            String(correoRaw || '').toLowerCase(), String(claveRaw || ''));
   if ((correoRaw || claveRaw) && !authed) return { ok: false, error: 'no_autorizado' };
 
-  // Abrir sin credenciales = vino del enlace del correo o de uno compartido.
+  // Abrir sin credenciales = vino del enlace del correo o de la vitrina.
+  // src=share separa las dos cosas: antes las vistas de un croquis compartido
+  // se contaban como retornos de correo y contaminaban la métrica honesta.
   if (!correoRaw && !claveRaw) {
-    _eventoServidor('volvio_por_correo', id);
+    _eventoServidor(String(srcRaw || '') === 'share' ? 'vista_compartida' : 'volvio_por_correo', id);
     // Un enlace que circula sin clave no puede quedar abierto para siempre:
     // caduca a los 60 días. Con credenciales, el dueño entra cuando quiera.
     var ts = row.ts ? new Date(row.ts).getTime() : 0;
@@ -251,7 +261,7 @@ function doPost(e) {
       var lista = _listByCredentials(correo, clave);
       return _json({ ok: true, count: lista.length, items: lista });
     }
-    if (mode === 'plan') return _json(_abrirPlan(body.id, correo, clave));
+    if (mode === 'plan') return _json(_abrirPlan(body.id, correo, clave, body.src));
 
     /* Derecho ARCO: el usuario puede llevarse sus datos de la hoja. Exige
        credenciales válidas, va con lock (borra filas) y es definitivo. */
@@ -268,9 +278,15 @@ function doPost(e) {
     var geomStr = JSON.stringify(geom);
     if (geomStr.length > CONFIG.MAX_GEOM_BYTES) return _json({ ok: false, error: 'plano_muy_grande' });
 
-    // Anti-abuso de escritura (antes solo 'list' tenía freno).
-    if (!_rateOk(_ckey('sv_', correo), CONFIG.MAX_SAVE_CORREO, 3600))
-      return _json({ ok: false, error: 'demasiados_intentos' });
+    // Anti-abuso de escritura, con llave SEPARADA por modo: el autosync de un
+    // usuario activo no debe gastarse el cupo de sus guardados (ni al revés).
+    if (mode === 'sync') {
+      if (!_rateOk(_ckey('sy_', correo), CONFIG.MAX_SYNC_CORREO, 3600))
+        return _json({ ok: false, error: 'demasiados_intentos' });
+    } else {
+      if (!_rateOk(_ckey('sv_', correo), CONFIG.MAX_SAVE_CORREO, 3600))
+        return _json({ ok: false, error: 'demasiados_intentos' });
+    }
 
     /* ---- escritura en la hoja: DENTRO del lock ---- */
     var lock = LockService.getScriptLock();
@@ -293,10 +309,18 @@ function doPost(e) {
        que el terreno vacío. Si no sale el correo, el front muestra la clave en
        pantalla: ningún lead se queda sin ella. */
     var emailed = false;
+    // El PNG del croquis viene del cliente (dataURL). Es best-effort: si falta,
+    // es inválido o pesa de más, el correo sale igual — solo que sin la imagen.
+    var png = (mode === 'save' && typeof body.png === 'string' &&
+               body.png.indexOf('data:image/png;base64,') === 0 &&
+               body.png.length <= CONFIG.MAX_PNG_CHARS) ? body.png : '';
     if (mode === 'save' && r.isNew && _claveEnviable(clave) && _planoConContenido(geom) && _canEmail(correo)) {
-      try { _sendPlanEmail(correo, r.nombre, r.planName, clave, r.planId); emailed = true; }
+      try { _sendPlanEmail(correo, r.nombre, r.planName, clave, r.planId, png); emailed = true; }
       catch (err) { console.error('correo a ' + correo + ': ' + err); }
     }
+    // Aviso interno: que Aurum se entere EN EL MOMENTO en que cae un lead,
+    // no cuando alguien abra la hoja. Jamás puede romper el guardado.
+    if (mode === 'save' && r.isNew) _avisaLeadNuevo(r, correo);
 
     return _json({ ok: true, plan_id: r.planId, version: r.version, isNew: r.isNew, emailed: emailed });
 
@@ -361,13 +385,16 @@ function _guardarFila(mode, correo, clave, geomStr, body) {
   var nombre   = String(body.nombre    || (existing && existing.nombre)    || '').slice(0, 80);
   var clientId = String(body.client_id || (existing && existing.client_id) || '').slice(0, 60);
   var marketing = body.marketing ? 'si' : ((existing && existing.marketing) || 'no');
+  // WhatsApp OPCIONAL del lead: solo dígitos y signos de teléfono, máx 20.
+  var telefono = String(body.telefono || '').replace(/[^0-9+() -]/g, '').slice(0, 20)
+              || String((existing && existing.telefono) || '');
 
   // La clave se escribe SOLO hasheada, con sal nueva por fila; la celda de
   // texto plano queda vacía. Mismo esquema que ya corre en producción.
   var hh = _hashClave(clave);
   var rowValues = _orderRow({
     ts: now, plan_id: planId, client_id: _safeCell(clientId), nombre: _safeCell(nombre), correo: _safeCell(correo),
-    clave: '', clave_hash: hh.hash, salt: hh.salt,
+    clave: '', clave_hash: hh.hash, salt: hh.salt, telefono: _safeCell(telefono),
     plan_name: _safeCell(planName), version: version, marketing: marketing,
     source: 'crokiss-web', geom_json: geomStr
   }, meta.header);
@@ -384,7 +411,7 @@ function _guardarFila(mode, correo, clave, geomStr, body) {
     } catch (err) { console.error('historial: ' + err); }
   }
 
-  return { planId: planId, version: version, isNew: isNew, nombre: nombre, planName: planName };
+  return { planId: planId, version: version, isNew: isNew, nombre: nombre, planName: planName, telefono: telefono, marketing: marketing };
 }
 
 /* Borra TODAS las filas de un correo en Planos e Historial. Fail cerrado: si
@@ -633,7 +660,7 @@ function _nombreLimpio(s) {
   return String(s || '').replace(/[^A-Za-zÀ-ÿ' .-]/g, '').trim().slice(0, 40);
 }
 
-function _sendPlanEmail(correo, nombre, planName, clave, planId) {
+function _sendPlanEmail(correo, nombre, planName, clave, planId, pngDataUrl) {
   var editorUrl = CONFIG.SITE_BASE + CONFIG.EDITOR_FILE + '?open=' + encodeURIComponent(planId);
   var limpio = _nombreLimpio(nombre);
   var saludo = limpio ? ('Hola ' + _esc(limpio)) : 'Hola';
@@ -645,6 +672,7 @@ function _sendPlanEmail(correo, nombre, planName, clave, planId) {
       '</div>' +
       '<div style="border:1px solid #e2e0db;border-top:0;border-radius:0 0 12px 12px;padding:24px">' +
         '<p>' + saludo + ', tu proyecto <b>' + _esc(planName) + '</b> qued&oacute; guardado.</p>' +
+        (pngDataUrl ? '<p style="font-size:13px;color:#6b6256">Te adjuntamos tu croquis en imagen, listo para compartir.</p>' : '') +
         '<p>Para volver a editarlo cuando quieras, tu clave es:</p>' +
         '<p style="font-size:20px;font-weight:700;letter-spacing:2px;background:#f4f2ee;border:1px dashed #c75b39;border-radius:8px;padding:12px 16px;text-align:center;color:#c75b39">' + _esc(clave) + '</p>' +
         '<p style="text-align:center;margin:22px 0">' +
@@ -659,7 +687,21 @@ function _sendPlanEmail(correo, nombre, planName, clave, planId) {
             ' y un arquitecto de Aurum revisa tu croquis contigo.</p>') +
       '</div>' +
     '</div>';
-  var asunto = 'Tu proyecto en CroKiss — tu clave para volver';
+  // El asunto lleva el nombre que la persona le puso a SU proyecto: es el dato
+  // emocional que ya tenemos, y en la bandeja de entrada vende más que "CroKiss".
+  var asunto = 'Tu croquis \u00ab' + String(planName).slice(0, 40) + '\u00bb est\u00e1 listo \u2014 tu clave para volver';
+
+  // Adjunto: el plano de verdad, no solo la promesa. Si el dataURL falla al
+  // decodificar, el correo sale sin imagen — nunca se pierde por esto.
+  var adjuntos = [];
+  if (pngDataUrl) {
+    try {
+      adjuntos.push(Utilities.newBlob(
+        Utilities.base64Decode(String(pngDataUrl).split(',')[1]),
+        'image/png',
+        'CroKiss-' + String(planName).replace(/[^A-Za-z0-9 _-]/g, '').slice(0, 40).trim() + '.png'));
+    } catch (err) { console.error('png adjunto: ' + err); adjuntos = []; }
+  }
 
   /* Entregabilidad: si la cuenta que corre el script tiene configurado el alias
      del dominio, se manda DESDE direccion@aurumarquitectos.com (mucho menos
@@ -675,12 +717,40 @@ function _sendPlanEmail(correo, nombre, planName, clave, planId) {
      Si el alias no existe, cae solito a MailApp: nunca deja de mandarse. */
   try {
     GmailApp.sendEmail(correo, asunto, '', {
-      htmlBody: html, name: CONFIG.REMITENTE_NOMBRE, from: CONFIG.ALERTA_CORREO
+      htmlBody: html, name: CONFIG.REMITENTE_NOMBRE, from: CONFIG.ALERTA_CORREO,
+      attachments: adjuntos
     });
   } catch (err) {
     console.log('alias no disponible, se manda con MailApp: ' + err);
-    MailApp.sendEmail({ to: correo, name: CONFIG.REMITENTE_NOMBRE, subject: asunto, htmlBody: html });
+    MailApp.sendEmail({ to: correo, name: CONFIG.REMITENTE_NOMBRE, subject: asunto, htmlBody: html, attachments: adjuntos });
   }
+}
+
+/* Aviso interno de lead nuevo. Va DIRECTO (sin _canEmail: ese throttle protege
+   los buzones de los usuarios, no el nuestro) pero con su propio tope por si un
+   bot creara cuentas en ráfaga. Si la caché falla, el aviso SALE (fail-open a
+   propósito: preferimos un aviso de más que un lead del que nadie se enteró). */
+function _avisaLeadNuevo(r, correo) {
+  try {
+    try {
+      var c = CacheService.getScriptCache();
+      var n = Number(c.get('al_6h') || '0');
+      if (n >= CONFIG.MAX_ALERTAS_6H) return;
+      c.put('al_6h', String(n + 1), 21600);
+    } catch (e) {}
+    MailApp.sendEmail({
+      to: CONFIG.ALERTA_CORREO,
+      subject: 'CroKiss \u00b7 lead nuevo: ' + (r.nombre || correo),
+      body: 'Cay\u00f3 un lead nuevo en CroKiss.\n\n' +
+            'Proyecto:  ' + r.planName + '\n' +
+            'Nombre:    ' + (r.nombre || '\u2014') + '\n' +
+            'Correo:    ' + correo + '\n' +
+            'WhatsApp:  ' + (r.telefono || '\u2014 (no dej\u00f3)') + '\n' +
+            'Acepta contacto comercial: ' + r.marketing + '\n\n' +
+            'Ver su croquis: ' + CONFIG.SITE_BASE + '?open=' + r.planId + '\n' +
+            'Los datos completos est\u00e1n en la hoja, pesta\u00f1a Planos.'
+    });
+  } catch (err) { console.error('aviso de lead: ' + err); }
 }
 
 /* ======================== MANTENIMIENTO (triggers) ======================== */

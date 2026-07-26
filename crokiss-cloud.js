@@ -156,6 +156,26 @@
     } catch (e) { toast('Copia este enlace: ' + txt); }
   }
 
+  /* El PNG que viaja en el guardado para que el correo ENTREGUE el plano, no
+     solo la clave. Best-effort con tres salidas a null: si el navegador no
+     puede (canvas viejo), si pesa de más (>1.5 MB) o si tarda >2.5 s. El
+     guardado JAMÁS espera al PNG más de eso: primero el lead, luego el adorno. */
+  function capturaPNG(cb) {
+    var listo = false;
+    function fin(v) { if (!listo) { listo = true; clearTimeout(t); cb(v); } }
+    var t = setTimeout(function () { fin(null); }, 2500);
+    try {
+      if (!ed || !ed.exportPNG) return fin(null);
+      ed.exportPNG(function (blob) {
+        if (!blob || blob.size > 1500000) return fin(null);
+        var r = new FileReader();
+        r.onload = function () { fin(String(r.result || '') || null); };
+        r.onerror = function () { fin(null); };
+        r.readAsDataURL(blob);
+      });
+    } catch (e) { fin(null); }
+  }
+
   /* WhatsApp si ya hay número; si no, el correo de siempre. Nunca un enlace roto. */
   function contactURL() {
     return /X{5,}/.test(CONFIG.WHATSAPP) ? CONFIG.CONTACT_URL : CONFIG.WHATSAPP;
@@ -373,13 +393,16 @@
     var planNm = ($('ck_g_plan').value   || '').trim() || 'Mi proyecto';
     var mkt    = $('ck_g_mkt') ? $('ck_g_mkt').checked : false;
     var honey  = $('ck_g_web') ? $('ck_g_web').value : '';
+    var tel    = $('ck_g_tel') ? ($('ck_g_tel').value || '').replace(/[^0-9+() -]/g, '').slice(0, 20) : '';
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correo)) { toast('Escribe un correo válido'); return; }
     if (!clave) { toast('Elige una clave para volver a tu proyecto'); return; }
     if (tooBig()) { toast(MSG_GRANDE); setStatus('Sin guardar — plano muy grande', 'warn'); return; }
 
     setStatus('Guardando…', 'saving');
+    capturaPNG(function (png) {
     post({ mode: 'save', plan_id: (ident && ident.planId) || '', nombre: nombre, correo: correo, clave: clave,
-           plan_name: planNm, marketing: mkt, website: honey, client_id: clientId(), geom: ed.getGeom() })
+           plan_name: planNm, marketing: mkt, website: honey, telefono: tel,
+           png: png || undefined, client_id: clientId(), geom: ed.getGeom() })
       .then(function (res) {
         if (res && res.ok) {
           ident = { planId: res.plan_id, correo: correo, clave: clave, planName: planNm };
@@ -401,6 +424,7 @@
         toast('Sin conexión. Tu plano sigue guardado en este navegador.');
         setStatus('Sin conexión — guardado local', 'warn');
       });
+    });
   }
 
   /* Borrar mis datos (ARCO). Es definitivo y se dice con todas sus letras. */
@@ -560,9 +584,12 @@
           (emailed ? ('Te enviamos tu clave y el enlace para volver a <b>' + esc(correo) + '</b>. Si no llega en unos minutos, revisa la carpeta de <b>spam</b>.') :
                      ('Guárdate esta clave para volver: se guardó en este navegador.')) +
         '</p>' +
-        '<div style="background:#f0ece4;border:1px dashed #c9c4ba;border-radius:10px;padding:10px 14px;margin-bottom:16px">' +
-          '<span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#9a8f81">Tu clave</span>' +
-          '<div style="font-size:18px;font-weight:600;color:#16181d">' + esc(clave) + '</div>' +
+        '<div style="background:#f0ece4;border:1px dashed #c9c4ba;border-radius:10px;padding:10px 14px;margin-bottom:16px;display:flex;align-items:center;gap:10px">' +
+          '<div style="flex:1;min-width:0">' +
+            '<span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#9a8f81">Tu clave</span>' +
+            '<div style="font-size:18px;font-weight:600;color:#16181d;word-break:break-all">' + esc(clave) + '</div>' +
+          '</div>' +
+          '<button id="ck_succ_copy" style="flex:none;background:#fff;border:1px solid #c75b39;border-radius:8px;padding:9px 12px;color:#c75b39;font:inherit;font-size:13px;font-weight:600;cursor:pointer;min-height:44px">Copiar</button>' +
         '</div>' +
         '<a href="' + esc(contactURL()) + '" id="ck_cta" target="_blank" rel="noopener" style="display:block;text-align:center;background:#c75b39;color:#fff;text-decoration:none;border-radius:10px;padding:12px;font-weight:600;font-size:15px;margin-bottom:8px">¿Quieres que Aurum convierta tu croquis en un proyecto real? →</a>' +
         (ident && ident.planId
@@ -571,6 +598,15 @@
         '<button id="ck_succ_close" style="width:100%;background:none;border:1px solid #d8d5cd;border-radius:10px;padding:11px;color:#6b6256;font:inherit;cursor:pointer">Seguir dibujando</button>' +
       '</div>';
     $('ck_succ_close').addEventListener('click', function () { ov.remove(); });
+    // La clave a un toque: quien no la copia, la pierde al cerrar el navegador
+    // (la sesión muere a propósito) y su único regreso es un correo que puede
+    // caer en spam. Este botón es la red de seguridad barata.
+    if ($('ck_succ_copy')) $('ck_succ_copy').addEventListener('click', function () {
+      var listo = function () { toast('Clave copiada — pégala donde no se te pierda'); };
+      if (navigator.clipboard && navigator.clipboard.writeText)
+        navigator.clipboard.writeText(clave).then(listo, function () { copiaAMano(clave, listo); });
+      else copiaAMano(clave, listo);
+    });
     if ($('ck_cta')) $('ck_cta').addEventListener('click', function () { track('cta_contacto_click'); });
     if ($('ck_succ_link')) $('ck_succ_link').addEventListener('click', function () {
       var url = location.origin + location.pathname + '?plan=' + encodeURIComponent(ident.planId);
@@ -669,7 +705,7 @@
       '<a href="./">Dibuja el tuyo gratis &rarr;</a>';
     document.body.insertBefore(banda, document.body.firstChild);
 
-    get({ action: 'plan', id: planId }).then(function (res) {
+    get({ action: 'plan', id: planId, src: 'share' }).then(function (res) {
       if (res && res.ok && res.geom) {
         ed.loadGeom(res.geom);
         if (res.plan_name) {
@@ -700,6 +736,16 @@
     var openId = new URLSearchParams(location.search).get('open');
 
     actualizaSesionUI();
+
+    // El pill se recorta en el teléfono para que la barra quepa en 2 filas:
+    // un toque lo lee completo en un toast. Y aria-live para lector de pantalla.
+    var pill = $('ck_status');
+    if (pill) {
+      pill.setAttribute('role', 'status');
+      pill.setAttribute('aria-live', 'polite');
+      pill.style.cursor = 'pointer';
+      pill.addEventListener('click', function () { if (pill.textContent) toast(pill.textContent); });
+    }
 
     if (openId) {
       openProject(openId);                  // desde el enlace del correo (sin clave en la URL)

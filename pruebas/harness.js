@@ -696,6 +696,47 @@ async function main() {
   ok(/body\.con-nudge \.toast\{bottom:calc/.test(html.replace(/\n\s*/g, '')),
      'y sube más cuando el aviso está presente');
 
+  /* --- Condiciones del comité de inversión (26-jul) --- */
+  grupo('Condiciones del comité (front)');
+  const cloudCom = fs.readFileSync(path.join(RAIZ, 'crokiss-cloud.js'), 'utf8');
+
+  // el lead ahora puede dejar WhatsApp (opcional, sin volverse fricción)
+  const tel = $('ck_g_tel');
+  ok(!!tel && tel.type === 'tel', 'el modal de guardar ofrece WhatsApp (type=tel)');
+  ok(tel && !tel.required, 'y es OPCIONAL: no bloquea la conversión');
+  ok(html.indexOf('id="ck_g_correo"') < html.indexOf('id="ck_g_tel"'),
+     'aparece DESPUÉS del correo (el dato esencial va primero)');
+  ok(/telefono: tel/.test(cloudCom), 'y viaja en el guardado');
+
+  // el correo entrega el plano: el cliente captura el PNG sin bloquear el lead
+  ok(/function capturaPNG/.test(cloudCom), 'existe capturaPNG');
+  ok(/capturaPNG\(function \(png\) \{/.test(cloudCom), 'submitSave la usa antes del POST');
+  ok(/setTimeout\(function \(\) \{ fin\(null\); \}, 2500\)/.test(cloudCom),
+     'con tope de 2.5 s: el guardado JAMÁS espera al adorno');
+  ok(/png: png \|\| undefined/.test(cloudCom), 'y si no hay PNG, el guardado sale igual');
+
+  // la vitrina ya no contamina la métrica de retorno
+  ok(/src: 'share'/.test(cloudCom), 'la vitrina se identifica con src=share');
+
+  // la clave a un toque en la pantalla de éxito
+  ok(/ck_succ_copy/.test(cloudCom) && /copiaAMano\(clave, listo\)/.test(cloudCom),
+     'botón Copiar clave con caída a copiado manual');
+
+  // el pill recortado ahora se puede LEER
+  const pillCom = $('ck_status');
+  ok(pillCom.getAttribute('aria-live') === 'polite' && pillCom.getAttribute('role') === 'status',
+     'el pill de estado habla con el lector de pantalla');
+  ok(/pill\.addEventListener\('click'/.test(cloudCom), 'y un toque lo lee completo en un toast');
+  ok($('toast').getAttribute('aria-live') === 'polite', 'el toast también es accesible');
+
+  // aviso de privacidad: de dominio muerto a página propia
+  ok(/href="aviso-privacidad\.html"/.test(html), 'el modal enlaza al aviso LOCAL (el dominio estaba caído)');
+  ok(fs.existsSync(path.join(RAIZ, 'aviso-privacidad.html')), 'y la página existe en el repo');
+  const aviso = fs.readFileSync(path.join(RAIZ, 'aviso-privacidad.html'), 'utf8');
+  ['Aurum Arquitectos', 'ARCO', 'Borrar mis datos', 'LFPDPPP', 'direccion@aurumarquitectos.com',
+   'hash', 'opcional', '60 días']
+    .forEach((t) => ok(aviso.indexOf(t) >= 0, 'el aviso cubre: ' + t));
+
   /* --- Guía de bienvenida: la landing que ve quien llega de una publicación --- */
   grupo('Guía de bienvenida (landing)');
   const guia = $('ck_guia');
