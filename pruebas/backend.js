@@ -527,6 +527,9 @@ grupo('Condiciones del comité de inversión (26-jul)');
                     telefono: '662 123 4567', plan_name: 'Mi refugio', geom: GEOM_REAL });
   const alertas = e.correosEnviados.filter((c) => c.to === 'direccion@aurumarquitectos.com');
   ok(alertas.length === 1, 'un lead nuevo dispara UN aviso a direccion@');
+  const evLead = (e.hojas.Eventos ? e.hojas.Eventos.celdas.slice(1) : []).map((f) => String(f[2]));
+  ok(evLead.indexOf('lead_nuevo') >= 0,
+     'y SIEMPRE deja el evento lead_nuevo en la hoja (el rastro no depende del correo)');
   ok(/lead nuevo/.test(alertas[0].subject || ''), 'con asunto inconfundible', alertas[0].subject);
   ok(/lead@x\.com/.test(alertas[0].body || '') && /662 123 4567/.test(alertas[0].body || ''),
      'y trae correo y WhatsApp del prospecto para contactarlo');
@@ -535,6 +538,20 @@ grupo('Condiciones del comité de inversión (26-jul)');
                     correo: 'lead@x.com', clave: 'clave-uno', plan_name: 'Mi refugio', geom: GEOM_REAL });
   ok(e.correosEnviados.filter((c) => c.to === 'direccion@aurumarquitectos.com').length === 1,
      'actualizar el mismo proyecto NO vuelve a avisar');
+
+  // si TODO el correo revienta, el error queda LEGIBLE en la pestaña Eventos
+  {
+    const e2 = entorno({ hojas: { Planos: hojaFalsa('Planos', []),
+      Historial: hojaFalsa('Historial', [], ['ts','plan_id','plan_name','correo','version','geom_json']) } });
+    e2.sandbox.GmailApp.sendEmail = () => { throw new Error('gmail caido'); };
+    e2.sandbox.MailApp.sendEmail = () => { throw new Error('mailapp caido tambien'); };
+    const rr = post(e2.sandbox, { mode: 'save', correo: 'x@x.com', clave: 'clave-uno', geom: GEOM_REAL });
+    ok(rr.ok === true, 'el guardado sobrevive aunque los dos correos revienten');
+    const evs2 = (e2.hojas.Eventos ? e2.hojas.Eventos.celdas.slice(1) : []).map((f) => String(f[2]) + '|' + String(f[3]));
+    ok(evs2.some((x) => x.indexOf('lead_nuevo') === 0), 'el lead quedó registrado igual');
+    ok(evs2.some((x) => x.indexOf('lead_alerta_error') === 0 && x.indexOf('mailapp caido') > 0),
+       'y el ERROR quedó escrito en la hoja, legible desde fuera', evs2.join(' · '));
+  }
 
   // --- Teléfono opcional del lead ---
   e = mk();

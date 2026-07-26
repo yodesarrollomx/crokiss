@@ -731,6 +731,10 @@ function _sendPlanEmail(correo, nombre, planName, clave, planId, pngDataUrl) {
    bot creara cuentas en ráfaga. Si la caché falla, el aviso SALE (fail-open a
    propósito: preferimos un aviso de más que un lead del que nadie se enteró). */
 function _avisaLeadNuevo(r, correo) {
+  // Rastro SIEMPRE, correo después: pase lo que pase con el correo, el evento
+  // lead_nuevo queda en la pestaña Eventos (y si el correo falla, el ERROR
+  // también queda ahí — así se diagnostica sin abrir Ejecuciones).
+  _eventoServidor('lead_nuevo', correo);
   try {
     try {
       var c = CacheService.getScriptCache();
@@ -738,19 +742,26 @@ function _avisaLeadNuevo(r, correo) {
       if (n >= CONFIG.MAX_ALERTAS_6H) return;
       c.put('al_6h', String(n + 1), 21600);
     } catch (e) {}
-    MailApp.sendEmail({
-      to: CONFIG.ALERTA_CORREO,
-      subject: 'CroKiss \u00b7 lead nuevo: ' + (r.nombre || correo),
-      body: 'Cay\u00f3 un lead nuevo en CroKiss.\n\n' +
-            'Proyecto:  ' + r.planName + '\n' +
-            'Nombre:    ' + (r.nombre || '\u2014') + '\n' +
-            'Correo:    ' + correo + '\n' +
-            'WhatsApp:  ' + (r.telefono || '\u2014 (no dej\u00f3)') + '\n' +
-            'Acepta contacto comercial: ' + r.marketing + '\n\n' +
-            'Ver su croquis: ' + CONFIG.SITE_BASE + '?open=' + r.planId + '\n' +
-            'Los datos completos est\u00e1n en la hoja, pesta\u00f1a Planos.'
-    });
-  } catch (err) { console.error('aviso de lead: ' + err); }
+    var asunto = 'CroKiss \u00b7 lead nuevo: ' + (r.nombre || correo);
+    var cuerpo = 'Cay\u00f3 un lead nuevo en CroKiss.\n\n' +
+                 'Proyecto:  ' + r.planName + '\n' +
+                 'Nombre:    ' + (r.nombre || '\u2014') + '\n' +
+                 'Correo:    ' + correo + '\n' +
+                 'WhatsApp:  ' + (r.telefono || '\u2014 (no dej\u00f3)') + '\n' +
+                 'Acepta contacto comercial: ' + r.marketing + '\n\n' +
+                 'Ver su croquis: ' + CONFIG.SITE_BASE + '?open=' + r.planId + '\n' +
+                 'Los datos completos est\u00e1n en la hoja, pesta\u00f1a Planos.';
+    // GmailApp primero: es la ruta que YA funciona en esta implementación (el
+    // correo al usuario sale por ahí). MailApp queda de respaldo.
+    try {
+      GmailApp.sendEmail(CONFIG.ALERTA_CORREO, asunto, cuerpo);
+    } catch (e1) {
+      MailApp.sendEmail({ to: CONFIG.ALERTA_CORREO, subject: asunto, body: cuerpo });
+    }
+  } catch (err) {
+    console.error('aviso de lead: ' + err);
+    _eventoServidor('lead_alerta_error', String(err).slice(0, 110));
+  }
 }
 
 /* ======================== MANTENIMIENTO (triggers) ======================== */
