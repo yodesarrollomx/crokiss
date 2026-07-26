@@ -202,6 +202,80 @@ body.ck-solo-lectura .stage{padding:20px;}
 .ck-nudge-x:hover{background:rgba(255,255,255,.1);color:#fff;}
 /* con el aviso presente, el toast se sube por encima de él */
 body.con-nudge .toast{bottom:calc(50px + var(--nudgeH, 76px) + 10px);}
+
+/* ===== Guía de bienvenida (landing) =====
+   Lo primero que ve quien llega desde una publicación: qué hace cada botón,
+   con dibujos animados en el espíritu CroKiss (lápiz sobre papel, SVG puro,
+   cero GIFs que pesen). Al final: "no volver a mostrar" + Empezar a dibujar. */
+#ck_guia{position:fixed;inset:0;z-index:120;background:var(--paper);overflow-y:auto;-webkit-overflow-scrolling:touch;}
+#ck_guia[hidden]{display:none;}
+body.ck-guia-open{overflow:hidden;}
+.gg-wrap{max-width:780px;margin:0 auto;padding:22px 18px 46px;}
+.gg-top{display:flex;justify-content:space-between;align-items:center;gap:10px;}
+.gg-hero h1{font-size:clamp(27px,6vw,42px);line-height:1.06;letter-spacing:.3px;margin:18px 0 10px;}
+.gg-hero .acc{color:var(--accent);}
+.gg-sub{color:var(--muted);font-size:15px;line-height:1.55;margin:0;max-width:58ch;}
+.gg-pasos{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 4px;}
+.gg-paso{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:#fff;border-radius:22px;padding:8px 14px;font-size:13px;}
+.gg-paso b{display:inline-flex;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;align-items:center;justify-content:center;font-size:12px;flex:none;}
+.gg-h2{font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin:28px 2px 12px;border-bottom:1px solid var(--line);padding-bottom:8px;}
+.gg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px;}
+.gg-card{border:1px solid var(--line);border-radius:14px;background:#fff;padding:12px 14px 14px;}
+.gg-card svg{width:100%;height:auto;display:block;background:var(--paper);border:1px dashed #e6e2d9;border-radius:9px;}
+.gg-card h3{margin:10px 2px 4px;font-size:16px;letter-spacing:.2px;}
+.gg-card p{margin:0 2px;color:var(--muted);font-size:13.5px;line-height:1.5;}
+.gg-chips{display:flex;flex-wrap:wrap;gap:8px;}
+.gg-kbd{border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px 12px;font-size:12.5px;color:var(--muted);}
+.gg-kbd b{color:var(--ink);font-weight:600;}
+.gg-final{margin-top:30px;border-top:1px solid var(--line);padding-top:18px;}
+.gg-priv{font-size:12.5px;color:var(--muted);line-height:1.5;margin:0 0 12px;}
+.gg-check{display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer;padding:10px 2px;user-select:none;}
+.gg-check input{width:20px;height:20px;accent-color:var(--accent);cursor:pointer;flex:none;}
+.gg-go{display:block;width:100%;margin:10px 0 12px;background:var(--accent);color:#fff;border:0;border-radius:12px;padding:16px;font:inherit;font-size:17px;font-weight:700;letter-spacing:.3px;cursor:pointer;min-height:54px;}
+.gg-go:hover{filter:brightness(.94);}
+.gg-firma{text-align:center;font-size:12px;color:var(--muted);margin:0;}
+/* trazos del dibujo */
+#ck_guia svg text{font-family:var(--fl);}
+#ck_guia .tin{stroke:var(--ink);stroke-width:3.4;fill:none;stroke-linecap:round;stroke-linejoin:round;}
+#ck_guia .fin{stroke:#d8d3c8;stroke-width:1.5;fill:none;}
+#ck_guia .aln{stroke:var(--accent);stroke-width:3;fill:none;stroke-linecap:round;}
+#ck_guia .gg-lbl{font-size:13px;font-weight:700;fill:var(--accent);}
+#ck_guia .gg-txt{font-size:11px;fill:var(--muted);}
+#ck_guia .gg-dedo{fill:var(--accent);stroke:#fff;stroke-width:2.5;}
+/* animaciones: un ciclo común de 5.6 s, tipo gif que se repite */
+.a-draw,.a-popA,.a-popB,.a-popC,.a-swap,.a-dot,.a-tap,.a-grow,.a-zoom,.a-pinchL,.a-pinchR{transform-box:fill-box;transform-origin:center;}
+.a-draw{stroke-dasharray:var(--len,300);stroke-dashoffset:var(--len,300);animation:ggDraw 5.6s ease-in-out infinite;}
+.a-popA{opacity:0;animation:ggPopA 5.6s ease infinite;}
+.a-popB{opacity:0;animation:ggPopB 5.6s ease infinite;}
+.a-popC{opacity:0;animation:ggPopC 5.6s ease infinite;}
+.a-swap{opacity:0;animation:ggSwap 5.6s ease infinite;}
+.a-dot{opacity:0;animation:ggDot 5.6s ease-in-out infinite;}
+.a-tap{opacity:0;animation:ggTap 5.6s ease-out infinite;}
+.a-grow{opacity:0;animation:ggGrow 5.6s ease infinite;}
+.a-zoom{animation:ggZoom 5.6s ease infinite;}
+.a-pinchL{animation:ggPinchL 5.6s ease infinite;}
+.a-pinchR{animation:ggPinchR 5.6s ease infinite;}
+@keyframes ggDraw{0%{stroke-dashoffset:var(--len,300);opacity:1}30%{stroke-dashoffset:0}88%{stroke-dashoffset:0;opacity:1}96%{opacity:0}97%,100%{stroke-dashoffset:var(--len,300);opacity:0}}
+@keyframes ggPopA{0%,30%{opacity:0;transform:scale(.88)}38%,88%{opacity:1;transform:scale(1)}96%,100%{opacity:0}}
+@keyframes ggPopB{0%,48%{opacity:0;transform:scale(.88)}56%,88%{opacity:1;transform:scale(1)}96%,100%{opacity:0}}
+@keyframes ggPopC{0%,64%{opacity:0;transform:scale(.88)}72%,88%{opacity:1;transform:scale(1)}96%,100%{opacity:0}}
+@keyframes ggSwap{0%,8%{opacity:0}14%,48%{opacity:1}56%,100%{opacity:0}}
+@keyframes ggDot{0%,6%{opacity:0;transform:translate(0,0)}12%{opacity:1}32%{transform:translate(var(--dx,0),var(--dy,0));opacity:1}38%,100%{opacity:0;transform:translate(var(--dx,0),var(--dy,0))}}
+@keyframes ggTap{0%,42%{opacity:0;transform:scale(.4)}48%{opacity:.95;transform:scale(1)}56%{opacity:0;transform:scale(1.7)}100%{opacity:0}}
+@keyframes ggGrow{0%,8%{opacity:0;transform:scale(.12)}14%{opacity:1}34%{transform:scale(1)}88%{opacity:1;transform:scale(1)}96%,100%{opacity:0}}
+@keyframes ggZoom{0%,40%{transform:scale(1)}62%,88%{transform:scale(1.22)}96%,100%{transform:scale(1)}}
+@keyframes ggPinchL{0%,40%{transform:translate(0,0);opacity:1}62%,88%{transform:translate(-20px,12px);opacity:1}96%,100%{opacity:0}}
+@keyframes ggPinchR{0%,40%{transform:translate(0,0);opacity:1}62%,88%{transform:translate(20px,-12px);opacity:1}96%,100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){
+  #ck_guia *{animation:none !important;}
+  #ck_guia .a-draw{stroke-dashoffset:0;}
+  #ck_guia .a-popA,#ck_guia .a-popB,#ck_guia .a-popC,#ck_guia .a-grow{opacity:1;transform:none;}
+  #ck_guia .a-dot,#ck_guia .a-tap,#ck_guia .a-swap{display:none;}
+}
+@media (max-width:640px){
+  .gg-wrap{padding:16px 14px 40px;}
+  .gg-grid{grid-template-columns:1fr;}
+}
 /* etiquetas largas en escritorio, cortas en el teléfono */
 .solo-mov{display:none;}
 
@@ -337,6 +411,7 @@ body.con-nudge .toast{bottom:calc(50px + var(--nudgeH, 76px) + 10px);}
         <button class="btn" id="upBtn">⬆ Importar</button>
         <button class="btn" id="copyBtn">⧉ Copiar resumen</button>
         <button class="btn" id="printBtn">⎙ Imprimir hoja</button>
+        <button class="btn" id="guiaBtn" title="Vuelve a ver la guía de bienvenida">❓ Cómo funciona</button>
       </div>
     </div>
   </div>
@@ -501,6 +576,236 @@ body.con-nudge .toast{bottom:calc(50px + var(--nudgeH, 76px) + 10px);}
       <a class="ck-link" id="ck_b_close">Mejor no</a>
       <button class="btn warn" id="ck_b_go">Sí, borrar todo</button>
     </div>
+  </div>
+</div>
+
+<!-- ===================== Guía de bienvenida (landing) ===================== -->
+<div id="ck_guia" role="region" aria-label="Guía de CroKiss" hidden>
+  <div class="gg-wrap">
+
+    <div class="gg-top">
+      <div class="brand">Cro<span style="color:var(--accent)">&middot;</span>Kiss<small>POR AURUM ARQUITECTOS</small></div>
+      <a href="#" class="ck-link" id="ck_guia_skip">Saltar guía →</a>
+    </div>
+
+    <div class="gg-hero">
+      <h1>Dibuja el croquis de tu casa. <span class="acc">Gratis.</span></h1>
+      <p class="gg-sub">CroKiss es el primer beso con tu proyecto: empiezas por el tamaño de tu
+      terreno, divides tu casa, la amueblas y la recibes por correo como lámina de arquitecto.
+      Sin instalar nada, hecho para tu celular.</p>
+      <div class="gg-pasos">
+        <span class="gg-paso"><b>1</b> Escribe tu terreno</span>
+        <span class="gg-paso"><b>2</b> Dibuja y amuebla</span>
+        <span class="gg-paso"><b>3</b> Guárdalo y recíbelo</span>
+      </div>
+    </div>
+
+    <h2 class="gg-h2">Así funciona cada botón</h2>
+    <div class="gg-grid">
+
+      <div class="gg-card">
+        <svg viewBox="0 0 280 150" aria-hidden="true">
+          <path class="tin a-draw" style="--len:660px" d="M32 26 H248 V124 H32 Z"/>
+          <g class="a-popA"><text x="140" y="18" text-anchor="middle" class="gg-lbl">10 m</text></g>
+          <g class="a-popB"><text x="18" y="80" text-anchor="middle" class="gg-lbl" transform="rotate(-90 18 80)">20 m</text></g>
+          <g class="a-popC"><text x="140" y="80" text-anchor="middle" class="gg-txt">tu lote, a escala real</text></g>
+        </svg>
+        <h3>Empieza por tu terreno</h3>
+        <p>Escribe el ancho y el fondo en metros y CroKiss dibuja tu lote a escala, con los muros de colindancia ya puestos.</p>
+      </div>
+
+      <div class="gg-card">
+        <svg viewBox="0 0 280 150" aria-hidden="true">
+          <path class="fin" d="M30 20 H250 V130 H30 Z"/>
+          <path class="tin a-draw" style="--len:180px" d="M55 78 H225"/>
+          <circle class="gg-dedo a-dot" style="--dx:170px" cx="55" cy="78" r="9"/>
+          <g class="a-popB"><text x="140" y="62" text-anchor="middle" class="gg-lbl">5.70</text></g>
+        </svg>
+        <h3>+ Muro</h3>
+        <p>Toca el botón y arrastra sobre el papel: el muro sale derechito y te va diciendo cuánto mide mientras lo trazas.</p>
+      </div>
+
+      <div class="gg-card">
+        <svg viewBox="0 0 280 150" aria-hidden="true">
+          <path class="fin" d="M30 18 H250 V132 H30 Z"/>
+          <g class="a-grow" style="transform-origin:66px 38px;transform-box:view-box">
+            <rect x="66" y="38" width="128" height="74" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-dasharray="7 6"/>
+          </g>
+          <g class="a-popB"><rect x="66" y="38" width="128" height="74" fill="none" stroke="var(--ink)" stroke-width="3.4"/></g>
+          <g class="a-popC"><text x="130" y="80" text-anchor="middle" class="gg-lbl">Recámara</text></g>
+        </svg>
+        <h3>+ Habitación</h3>
+        <p>¿Un cuarto completo de un jalón? Arrastra un rectángulo: salen sus 4 muros y le pones nombre con un toque.</p>
+      </div>
+
+      <div class="gg-card">
+        <svg viewBox="0 0 280 150" aria-hidden="true">
+          <path class="tin" d="M28 62 H252"/>
+          <g class="a-tap"><circle cx="98" cy="62" r="13" fill="none" stroke="var(--accent)" stroke-width="3"/></g>
+          <g class="a-popB">
+            <path class="aln" d="M72 54 H124 M72 70 H124"/>
+            <text x="98" y="40" text-anchor="middle" class="gg-txt">ventana</text>
+          </g>
+          <g class="a-popC">
+            <path class="tin" d="M178 62 V104"/>
+            <path class="aln" stroke-dasharray="4 6" d="M178 104 A42 42 0 0 1 220 62"/>
+            <text x="206" y="122" text-anchor="middle" class="gg-txt">puerta</text>
+          </g>
+        </svg>
+        <h3>Ventanas, puertas y corredizas</h3>
+        <p>Arma la herramienta y toca el muro donde va. La puerta trae su abatimiento; lo volteas con ⇄ y ⤺.</p>
+      </div>
+
+      <div class="gg-card">
+        <svg viewBox="0 0 280 150" aria-hidden="true">
+          <path class="tin" d="M45 96 H235"/>
+          <g class="a-swap"><text x="140" y="82" text-anchor="middle" class="gg-lbl">5.50</text></g>
+          <g class="a-tap"><circle cx="140" cy="78" r="14" fill="none" stroke="var(--accent)" stroke-width="3"/></g>
+          <g class="a-popB">
+            <rect x="106" y="38" width="68" height="30" rx="7" fill="#fff" stroke="var(--accent)" stroke-width="2.5"/>
+            <text x="140" y="58" text-anchor="middle" class="gg-lbl">3.40</text>
+          </g>
+          <g class="a-popC"><text x="196" y="50" class="gg-txt">Enter ✓</text></g>
+        </svg>
+        <h3>Medidas exactas</h3>
+        <p>Toca el numerito de un muro o de una ventana, escribe la medida real (3.40) y Enter. Se acabó el "ahí más o menos".</p>
+      </div>
+
+      <div class="gg-card">
+        <svg viewBox="0 0 280 150" aria-hidden="true">
+          <g class="a-popA">
+            <rect x="58" y="52" width="92" height="52" rx="9" class="tin"/>
+            <path class="tin" d="M58 70 H150"/>
+            <path class="fin" d="M104 70 V104"/>
+          </g>
+          <g class="a-popB">
+            <circle cx="150" cy="104" r="8" fill="#fff" stroke="var(--accent)" stroke-width="2.6"/>
+            <path class="aln" d="M158 112 L176 130 M168 130 h8 v-8"/>
+          </g>
+          <g class="a-popC"><text x="196" y="58" class="gg-lbl">↻ girar</text></g>
+        </svg>
+        <h3>Muebles y etiquetas</h3>
+        <p>Abre 🛋, elige y colócalo. La esquina lo escala, ↻ lo gira, y con 🔖 le pones nombre a cada espacio.</p>
+      </div>
+
+      <div class="gg-card">
+        <svg viewBox="0 0 280 150" aria-hidden="true">
+          <path class="tin a-draw" style="--len:320px" d="M45 100 C85 45 135 125 175 70 S235 60 240 62"/>
+          <g class="a-popB"><text x="66" y="52" font-size="30" fill="var(--ink)">↶</text></g>
+          <g class="a-popC"><text x="108" y="52" font-size="30" fill="var(--accent)">↷</text></g>
+        </svg>
+        <h3>Equivocarse no cuesta</h3>
+        <p>↶ Deshacer regresa lo último y ↷ lo rehace. ⧉ duplica lo seleccionado y ✕ lo borra. Nada es definitivo.</p>
+      </div>
+
+      <div class="gg-card">
+        <svg viewBox="0 0 280 150" aria-hidden="true">
+          <g class="a-popA">
+            <rect x="52" y="62" width="104" height="58" class="tin"/>
+            <path class="tin" d="M46 62 H162"/>
+            <rect x="70" y="78" width="24" height="24" class="aln"/>
+            <path class="fin" d="M30 120 H250"/>
+          </g>
+          <g class="a-popB">
+            <path class="aln" d="M196 62 V120 M190 68 l6 -6 6 6 M190 114 l6 6 6 -6"/>
+            <text x="210" y="95" class="gg-lbl">2.40</text>
+          </g>
+          <g class="a-popC"><text x="52" y="40" class="gg-txt">Sur · Norte · Oriente · Poniente</text></g>
+        </svg>
+        <h3>🏠 Fachadas</h3>
+        <p>CroKiss levanta las 4 fachadas solito desde tu planta. Ajusta alturas de muros, ventanas y pretil.</p>
+      </div>
+
+      <div class="gg-card">
+        <svg viewBox="0 0 280 150" aria-hidden="true">
+          <g class="a-popA">
+            <rect x="34" y="26" width="92" height="112" class="tin"/>
+            <rect x="46" y="40" width="68" height="62" class="fin"/>
+            <path class="fin" d="M46 72 H114 M78 72 V102"/>
+          </g>
+          <g class="a-popB">
+            <rect x="142" y="26" width="112" height="112" class="tin"/>
+            <path class="fin" d="M198 26 V138 M142 82 H254"/>
+            <path class="aln" d="M156 66 h26 M162 54 l7 -8 7 8 M212 66 h26 M218 54 l7 -8 7 8 M156 122 h26 M162 110 l7 -8 7 8 M212 122 h26 M218 110 l7 -8 7 8"/>
+          </g>
+          <g class="a-popC"><rect x="214" y="118" width="40" height="20" fill="var(--ink)"/><text x="234" y="131" text-anchor="middle" font-size="8" fill="#fff" letter-spacing="1">AURUM</text></g>
+        </svg>
+        <h3>📐 Lámina / PDF</h3>
+        <p>Tu croquis como lámina de arquitecto: planta + fachadas con cuadro de datos, lista para imprimir o guardar en PDF.</p>
+      </div>
+
+      <div class="gg-card">
+        <svg viewBox="0 0 280 150" aria-hidden="true">
+          <g class="a-popA">
+            <rect x="36" y="36" width="66" height="66" class="tin"/>
+            <path class="fin" d="M36 70 H102 M70 70 V102"/>
+          </g>
+          <path class="aln a-draw" style="--len:80px" d="M112 68 H164"/>
+          <g class="a-popB">
+            <path class="aln" d="M156 60 l10 8 -10 8"/>
+            <rect x="178" y="46" width="66" height="46" rx="7" class="tin"/>
+            <path class="tin" d="M178 50 L211 74 L244 50"/>
+          </g>
+          <g class="a-popC">
+            <rect x="58" y="114" width="164" height="24" rx="12" fill="#f6f2ea" stroke="var(--accent)" stroke-dasharray="5 4"/>
+            <text x="140" y="130" text-anchor="middle" class="gg-lbl" font-size="12">clave: mi-casa-921</text>
+          </g>
+        </svg>
+        <h3>💾 Guardar y volver</h3>
+        <p>Deja tu correo y una clave. Te mandamos tu plano con un enlace para seguirlo editando otro día, donde sea.</p>
+      </div>
+
+      <div class="gg-card">
+        <svg viewBox="0 0 280 150" aria-hidden="true">
+          <g class="a-popA">
+            <rect x="108" y="22" width="64" height="116" rx="12" class="tin"/>
+            <rect x="118" y="40" width="44" height="64" class="fin"/>
+            <path class="fin" d="M118 72 H162 M140 72 V104"/>
+          </g>
+          <path class="aln a-draw" style="--len:70px" d="M176 60 C200 50 210 48 222 48"/>
+          <g class="a-popB">
+            <circle cx="230" cy="48" r="17" fill="none" stroke="var(--accent)" stroke-width="3"/>
+            <text x="230" y="53" text-anchor="middle" font-size="11" fill="var(--accent)" font-weight="700">WA</text>
+            <text x="230" y="80" text-anchor="middle" class="gg-txt">WhatsApp</text>
+          </g>
+          <g class="a-popC"><rect x="30" y="56" width="52" height="24" rx="12" fill="#fff" stroke="#d8d5cd"/><text x="56" y="72" text-anchor="middle" class="gg-txt">PNG</text></g>
+        </svg>
+        <h3>Compártelo</h3>
+        <p>🖼 lo baja como imagen para mandarlo por WhatsApp, o comparte un enlace para que lo vean sin poder moverle.</p>
+      </div>
+
+      <div class="gg-card">
+        <svg viewBox="0 0 280 150" aria-hidden="true">
+          <g class="a-zoom"><rect x="98" y="52" width="84" height="52" class="tin"/><path class="fin" d="M98 78 H182 M140 52 V104"/></g>
+          <circle class="gg-dedo a-pinchL" cx="92" cy="112" r="9"/>
+          <circle class="gg-dedo a-pinchR" cx="192" cy="42" r="9"/>
+          <g class="a-popC"><text x="140" y="138" text-anchor="middle" class="gg-txt">pellizca para acercar · ✋ mueve el papel</text></g>
+        </svg>
+        <h3>Muévete a gusto</h3>
+        <p>Pellizca con dos dedos para el zoom (o Ctrl + rueda en compu), ✋ mueve el papel y ⤢ lo ajusta todo a la vista.</p>
+      </div>
+
+    </div>
+
+    <h2 class="gg-h2">Trucos rápidos</h2>
+    <div class="gg-chips">
+      <span class="gg-kbd"><b>Esc</b> cancela la herramienta</span>
+      <span class="gg-kbd"><b>flechas</b> mueven finito lo seleccionado</span>
+      <span class="gg-kbd"><b>Ctrl/⌘ + Z</b> deshace</span>
+      <span class="gg-kbd"><b>Ctrl/⌘ + D</b> duplica</span>
+      <span class="gg-kbd"><b>⬇ Respaldo</b> guarda una copia en tu equipo</span>
+      <span class="gg-kbd"><b>⋯ Más</b> guarda el resto de herramientas</span>
+      <span class="gg-kbd">el <b>pill de arriba</b> te dice si ya está guardado</span>
+    </div>
+
+    <div class="gg-final">
+      <p class="gg-priv">Tu plano vive en tu navegador hasta que tú decidas guardarlo. Usamos tu correo
+      solo para enviarte tu plano y, si tú lo pides, para que un arquitecto de Aurum te contacte.</p>
+      <label class="gg-check"><input type="checkbox" id="ck_guia_chk"><span>Ya la vi — no volver a mostrar esta guía</span></label>
+      <button class="gg-go" id="ck_guia_go">Empezar a dibujar →</button>
+      <p class="gg-firma">Gratis y sin instalar nada · Por <b>Aurum Arquitectos</b> · Hermosillo</p>
+    </div>
+
   </div>
 </div>
 
@@ -761,10 +1066,50 @@ body.con-nudge .toast{bottom:calc(50px + var(--nudgeH, 76px) + 10px);}
         .observe(ov, { attributes:true, attributeFilter:['hidden'] });
     });
     document.addEventListener('keydown', function(e){
+      if (document.body.classList.contains('ck-guia-open')) return;   // la guía va encima
       var m = firstVisible(); if (!m) return;
       if (e.key === 'Escape'){ document.getElementById(m.ov).setAttribute('hidden',''); }
       else if (e.key === 'Enter' && m.go){ var t=e.target; if (t && t.tagName==='TEXTAREA') return; e.preventDefault(); document.getElementById(m.go).click(); }
     });
+  })();
+
+  // ---- Guía de bienvenida: landing para quien llega de una publicación ----
+  // Sale sola SOLO la primera vez. Nunca encima de un enlace del correo
+  // (?open) ni de un plano compartido (?plan): esa gente ya sabe qué es esto.
+  // ?guia=1 la fuerza siempre (para ligarla directo desde una publicación).
+  (function(){
+    var K = 'ck_guia_v1', SK = 'ck_guia_sesion';
+    var ov = document.getElementById('ck_guia'); if (!ov) return;
+    var qs = new URLSearchParams(location.search);
+    function abrirGuia(reabierta){
+      ov.removeAttribute('hidden');
+      document.body.classList.add('ck-guia-open');
+      ov.scrollTop = 0;
+      if (window.CroKiss && CroKiss.track) CroKiss.track(reabierta ? 'guia_reabierta' : 'guia_vista', '', !reabierta);
+    }
+    function cerrarGuia(){
+      var chk = document.getElementById('ck_guia_chk');
+      try {
+        if (chk && chk.checked) localStorage.setItem(K, 'no_mostrar');
+        sessionStorage.setItem(SK, '1');           // en esta sesión ya no vuelve a salir
+      } catch (e) {}
+      ov.setAttribute('hidden', '');
+      document.body.classList.remove('ck-guia-open');
+      if (window.CroKiss && CroKiss.track) CroKiss.track('guia_continuar', chk && chk.checked ? 'no_mostrar' : 'normal');
+    }
+    document.getElementById('ck_guia_go').addEventListener('click', cerrarGuia);
+    document.getElementById('ck_guia_skip').addEventListener('click', function (e) { e.preventDefault(); cerrarGuia(); });
+    var mb = document.getElementById('guiaBtn');
+    if (mb) mb.addEventListener('click', function(){ abrirGuia(true); });
+    var mostrar = qs.get('guia') === '1';
+    if (!mostrar) {
+      try {
+        mostrar = !localStorage.getItem(K) && !sessionStorage.getItem(SK) &&
+                  !localStorage.getItem('crokiss_identity_v1') &&
+                  !qs.get('open') && !qs.get('plan');
+      } catch (e) { mostrar = false; }
+    }
+    if (mostrar) abrirGuia(false);
   })();
 
   // ---- CroKiss: nube (terreno, guardar/abrir con clave, sincronización) ----

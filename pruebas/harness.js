@@ -696,6 +696,55 @@ async function main() {
   ok(/body\.con-nudge \.toast\{bottom:calc/.test(html.replace(/\n\s*/g, '')),
      'y sube más cuando el aviso está presente');
 
+  /* --- Guía de bienvenida: la landing que ve quien llega de una publicación --- */
+  grupo('Guía de bienvenida (landing)');
+  const guia = $('ck_guia');
+  ok(!!guia, 'existe la guía #ck_guia');
+  ok(!guia.hasAttribute('hidden'), 'sale sola en la primera visita (sin nada guardado)');
+  ok(doc.body.classList.contains('ck-guia-open'), 'y bloquea el scroll del fondo mientras está abierta');
+  const dibujos = guia.querySelectorAll('svg').length;
+  ok(dibujos >= 12, 'trae al menos 12 dibujos animados (SVG, no GIFs que pesen)', 'svg: ' + dibujos);
+  ok(guia.querySelectorAll('.gg-card').length >= 12, 'una tarjeta por herramienta');
+  ['terreno', 'Muro', 'Habitación', 'Ventana', 'puerta', 'Muebles', 'Fachadas', 'Lámina',
+   'Guardar', 'Deshacer', 'WhatsApp', 'zoom', 'Esc', 'Trucos']
+    .forEach((t) => ok(new RegExp(t, 'i').test(guia.textContent), 'explica: ' + t));
+  const chk = $('ck_guia_chk'), go = $('ck_guia_go');
+  ok(!!chk && chk.type === 'checkbox' && !chk.checked, 'el "no volver a mostrar" existe y nace SIN marcar');
+  ok(!!go && /Empezar/i.test(go.textContent), 'y abajo está el botón para seguir adelante');
+  ok(!!$('ck_guia_skip'), 'con un "Saltar guía" arriba para quien ya la conoce');
+
+  // seguir adelante SIN marcar: cierra, pero mañana vuelve a salir
+  go.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+  ok(guia.hasAttribute('hidden'), 'Empezar a dibujar cierra la guía');
+  ok(!doc.body.classList.contains('ck-guia-open'), 'y devuelve el scroll');
+  ok(win.localStorage.getItem('ck_guia_v1') === null, 'sin marcar el check NO queda silenciada para siempre');
+  ok(win.sessionStorage.getItem('ck_guia_sesion') === '1', 'pero ya no reaparece en esta misma sesión');
+
+  // se puede volver a abrir desde ⋯ Más
+  ok(!!$('guiaBtn'), 'hay botón "❓ Cómo funciona" en ⋯ Más');
+  $('guiaBtn').dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+  ok(!guia.hasAttribute('hidden'), 'y reabre la guía cuando quieras');
+
+  // marcar el check sí la silencia
+  chk.checked = true;
+  go.dispatchEvent(new win.MouseEvent('click', { bubbles: true }));
+  ok(win.localStorage.getItem('ck_guia_v1') === 'no_mostrar', 'con el check marcado queda silenciada de verdad');
+
+  // quien llega del enlace del correo (?open=ID) NO debe toparse con la guía
+  {
+    const vc2 = new VirtualConsole(); vc2.on('jsdomError', () => {}); vc2.on('error', () => {});
+    const dom2 = new JSDOM(html, { url: BASE + '?open=ckPRUEBA', runScripts: 'dangerously',
+      resources: { interceptors: [servirLocal] }, pretendToBeVisual: true, virtualConsole: vc2 });
+    await new Promise((res) => {
+      if (dom2.window.document.readyState === 'complete') return res();
+      dom2.window.addEventListener('load', res);
+      setTimeout(res, 4000);
+    });
+    const g2 = dom2.window.document.getElementById('ck_guia');
+    ok(g2 && g2.hasAttribute('hidden'), 'quien llega del enlace del correo (?open) NO ve la guía');
+    dom2.window.close();
+  }
+
   /* --- versión visible --- */
   grupo('Versión desplegada');
   ok(/^\d{4}-\d{2}-\d{2}$/.test(String(win.CK_VERSION || '')), 'CK_VERSION tiene formato YYYY-MM-DD',

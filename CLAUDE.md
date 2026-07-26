@@ -195,6 +195,18 @@ Todo quedó fijado con 13 pruebas nuevas en `pruebas/harness.js` para que no vue
 
 > **Regla de pruebas (aprendida a la mala):** para probar la app **nunca** se usa producción. Se levanta una copia con el `ENDPOINT` apuntando a un servidor local de mentiras. Interceptar `fetch` desde la consola **no sirve**: cualquier recarga se lleva la intercepción y el siguiente guardado crea un lead real.
 
+### Guía de bienvenida (landing) — 2026-07-26
+
+Pantalla completa que ve **antes de entrar** quien llega desde una publicación: hero de landing, las **12 herramientas explicadas con dibujos animados** (SVG + CSS puro, ciclo de 5.6 s tipo gif — cero GIFs que pesen), trucos rápidos, y al final el checkbox **"no volver a mostrar"** + **Empezar a dibujar**.
+
+Reglas de aparición (`ck_guia_v1` en localStorage, `ck_guia_sesion` en sessionStorage):
+- Sale sola SOLO la primera visita. Si continúan **sin** marcar el check, no reaparece en esa sesión pero sí en la siguiente; **con** el check queda silenciada.
+- **Nunca** encima de `?open=ID` (enlace del correo) ni `?plan=ID` (compartido): esa gente ya conoce la app.
+- `?guia=1` la **fuerza siempre** → es la URL para publicaciones: `https://alexpueblag.github.io/crokiss/?guia=1`
+- Se reabre desde **⋯ Más → ❓ Cómo funciona**.
+- Eventos del embudo: `guia_vista`, `guia_continuar` (extra: `no_mostrar`/`normal`), `guia_reabierta`.
+- Respeta `prefers-reduced-motion` (dibujo quieto en estado final). Vive dentro de `index.html` (mismo script en línea: el harness exige exactamente 1).
+
 ## Pendiente (backend, para segunda ronda — NO shippeado por riesgo)
 
 Todo lo de esta lista **ya se hizo** en P1–P6: hasheo de clave con migración (P2), poda del Historial y búsqueda por TextFinder (P1), y alerta de salud (`healthPing`, P1). Se conserva el respaldo semanal (`respaldoSemanal`) del trigger de junio.
