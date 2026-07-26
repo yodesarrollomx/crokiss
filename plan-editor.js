@@ -473,7 +473,9 @@
           if (isSel) {
             attrs['data-cota'] = 'wall:' + w.id;
             attrs.style = 'cursor:text';
-            lab += el('rect', { x: tx - 26 * K, y: ty - 13 * K, width: 52 * K, height: 18 * K,
+            // zona tocable de 60×44 px REALES: el texto mide 18 px de alto y
+            // con el dedo era casi imposible atinarle (probado en 390 px)
+            lab += el('rect', { x: tx - 30 * K, y: ty - 22 * K, width: 60 * K, height: 44 * K,
               fill: 'rgba(0,0,0,0)', 'data-cota': 'wall:' + w.id, style: 'cursor:text',
               transform: vert ? `rotate(-90 ${tx} ${ty})` : '' });
           }
@@ -490,7 +492,7 @@
             const cym = esPuerta ? (h ? o.hy : o.hy + ancho / 2) : (h ? o.fixed : (o.a + o.b) / 2);
             const px = X(cxm), py = Y(cym) + (h ? 20 * K : 0);
             const qx = h ? px : px + 22 * K;
-            lab += el('rect', { x: qx - 26 * K, y: py - 13 * K, width: 52 * K, height: 18 * K,
+            lab += el('rect', { x: qx - 30 * K, y: py - 22 * K, width: 60 * K, height: 44 * K,
               fill: 'rgba(0,0,0,0)', 'data-cota': sel.kind + ':' + sel.id, style: 'cursor:text' });
             lab += el('text', { x: qx, y: py, 'text-anchor': 'middle', fill: ACC,
               'font-size': 12 * K, 'font-family': 'var(--fl)', 'font-weight': 700,
@@ -1038,7 +1040,16 @@
       }
       if (drag && drag.kind === 'drawwall') {
         const w = find('wall', drag.id);
-        if (w && wallLen(w) < 0.10) { geom.walls = geom.walls.filter((x) => x.id !== w.id); sel = null; }
+        if (w && wallLen(w) < 0.10) {
+          geom.walls = geom.walls.filter((x) => x.id !== w.id); sel = null;
+          // Un toque corto (dedo grueso, pulso de más) NO debe gastar la
+          // herramienta: si no llegó a salir muro, la dejamos armada. Antes
+          // había que volver a tocar "+ Muro" sin ninguna señal de por qué.
+          placing = 'wall';
+          if (svgEl) svgEl.style.cursor = 'crosshair';
+          if (typeof window.toast === 'function')
+            window.toast('Mantén el dedo y arrastra para trazar el muro · Esc para cancelar');
+        }
       } else if (drag && drag.blockToggle && !drag.moved) {
         const w = find('wall', drag.blockToggle.wallId);
         if (w) {

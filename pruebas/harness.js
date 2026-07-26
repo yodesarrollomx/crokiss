@@ -640,6 +640,51 @@ async function main() {
   ok(fuente6.indexOf("texto: obj.rot + '\u00b0'") >= 0, 'muestra grados al girar');
   ok(/texto: fmt\(obj\.w\) \+ ' × ' \+ fmt\(obj\.h\)/.test(fuente6), 'y ancho × largo al escalar');
 
+  /* --- Hallazgos del enjambre de UX (2026-07-26) ---
+     Seis personas de distinta edad, escolaridad y dispositivo recorrieron la
+     página real en 390 px. Esto fija lo que se arregló para que no vuelva. */
+  grupo('Enjambre de UX: lo que se arregló no debe volver');
+
+  const cloudUX = fs.readFileSync(path.join(RAIZ, 'crokiss-cloud.js'), 'utf8');
+  const motorUX = fs.readFileSync(path.join(RAIZ, 'plan-editor.js'), 'utf8');
+
+  // 1. El aviso de guardado no puede salirse de una pantalla angosta
+  ok(/\.ck-nudge\{[^}]*left:14px;right:14px/.test(html.replace(/\s+/g, '')) ||
+     /left:14px;right:14px/.test(html),
+     'el aviso se ancla a los dos costados (antes se salía de la pantalla)');
+  ok(!/left:50%;bottom:18px;transform:translateX\(-50%\)/.test(cloudUX),
+     'ya no se centra con translate, que era lo que lo sacaba del teléfono');
+  ok(/\.ck-nudge-go\{[^}]*min-height:44px/.test(html.replace(/\n\s*/g, '')),
+     'su CTA mide al menos 44 px de alto');
+  ok(/\.ck-nudge-x\{[^}]*min-width:44px;min-height:44px/.test(html.replace(/\n\s*/g, '')),
+     'y el cerrar pasó de 15×21 a 44×44');
+
+  // 2. No pedir guardar antes de que el plano sea suyo
+  ok(/if \(document\.querySelector\('\.ck-overlay:not\(\[hidden\]\)'\)\) return;/.test(cloudUX),
+     'el aviso no aparece con un modal abierto');
+  ok(/if \(!g \|\| !g\.lot\) return;/.test(cloudUX),
+     'ni antes de que el usuario elija su terreno');
+  ok(/var propios = elementCount\(\) - 4;/.test(cloudUX),
+     'y cuenta solo lo que dibujó, no la geometría de muestra heredada');
+
+  // 3. COMPORTAMIENTO: un toque corto no debe gastar la herramienta
+  ok(/placing = 'wall';/.test(motorUX) && /Un toque corto/.test(motorUX),
+     'un trazo demasiado corto deja la herramienta armada');
+
+  // 4. Blancos táctiles
+  ok(/width: 60 \* K, height: 44 \* K/.test(motorUX),
+     'la cota tocable mide 60×44 px reales (antes 52×18)');
+  ok(/\.btn\{padding:8px 7px;font-size:12px;gap:3px;min-height:44px;\}/.test(html),
+     'los botones de la barra miden 44 px de alto en el teléfono');
+
+  // 5. Abajo ya no se amontonan barra de info, toast y aviso
+  ok(/\.info\{[^}]*flex-wrap:nowrap;overflow-x:auto/.test(html.replace(/\n\s*/g, '')),
+     'la barra de info es una sola fila deslizable');
+  ok(/\.toast\{bottom:64px/.test(html.replace(/\n\s*/g, '')),
+     'el toast vive por encima de la barra de info');
+  ok(/body\.con-nudge \.toast\{bottom:calc/.test(html.replace(/\n\s*/g, '')),
+     'y sube más cuando el aviso está presente');
+
   /* --- versión visible --- */
   grupo('Versión desplegada');
   ok(/^\d{4}-\d{2}-\d{2}$/.test(String(win.CK_VERSION || '')), 'CK_VERSION tiene formato YYYY-MM-DD',

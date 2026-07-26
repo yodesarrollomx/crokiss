@@ -388,7 +388,7 @@
           lastPushed = geomStr(); lastSeen = lastPushed; dirty = false;
           hide($('ck_modal_guardar'));
           setStatus('Guardado en la nube ✓', 'ok');
-          if ($('ck_nudge')) $('ck_nudge').remove();
+          if ($('ck_nudge')) { $('ck_nudge').remove(); document.body.classList.remove('con-nudge'); }
           track('guardado_ok', res.isNew ? 'nuevo' : 'actualizado');
           showSuccess(correo, clave, !!res.emailed);
         } else {
@@ -507,18 +507,39 @@
     if ($('ck_nudge')) return;
     var d = document.createElement('div');
     d.id = 'ck_nudge';
-    d.setAttribute('style','position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:60;max-width:92vw;background:#16181d;color:#f5f1ea;border-radius:12px;padding:12px 16px;box-shadow:0 10px 34px rgba(0,0,0,.32);display:flex;gap:14px;align-items:center;font-family:var(--fl,sans-serif);font-size:14px');
-    d.innerHTML = '<span>Tu plano vive solo en este navegador. Guárdalo y te lo enviamos por correo.</span>' +
-      '<button id="ck_nudge_go" style="flex:none;background:#c75b39;color:#fff;border:none;border-radius:8px;padding:8px 14px;font:inherit;font-weight:600;cursor:pointer">Guardar y recibirlo</button>' +
-      '<button id="ck_nudge_x" aria-label="Cerrar" style="flex:none;background:none;border:none;color:#cdbfb0;font-size:18px;cursor:pointer;padding:0 2px">×</button>';
+    // La maquetación vive en el CSS (clase .ck-nudge), no en un style en línea:
+    // con `left:50%` + `translateX(-50%)` y un ancho que no cabía, en un
+    // teléfono el aviso se salía de la pantalla y su botón —el CTA de captación
+    // de leads— quedaba literalmente fuera del alcance del dedo.
+    d.className = 'ck-nudge';
+    d.innerHTML = '<span class="ck-nudge-txt">Tu plano vive solo en este navegador. Guárdalo y te lo enviamos por correo.</span>' +
+      '<button id="ck_nudge_go" class="ck-nudge-go">Guardar y recibirlo</button>' +
+      '<button id="ck_nudge_x" class="ck-nudge-x" aria-label="Cerrar aviso">×</button>';
     document.body.appendChild(d);
-    $('ck_nudge_go').addEventListener('click', function () { d.remove(); if ($('ckSaveBtn')) $('ckSaveBtn').click(); });
-    $('ck_nudge_x').addEventListener('click', function () { d.remove(); });
+    // el toast se sube por encima del aviso para que no se pisen en un teléfono
+    function quitar() {
+      d.remove();
+      document.body.classList.remove('con-nudge');
+      document.body.style.removeProperty('--nudgeH');
+    }
+    document.body.classList.add('con-nudge');
+    document.body.style.setProperty('--nudgeH', Math.round(d.getBoundingClientRect().height) + 'px');
+    $('ck_nudge_go').addEventListener('click', function () { quitar(); if ($('ckSaveBtn')) $('ckSaveBtn').click(); });
+    $('ck_nudge_x').addEventListener('click', quitar);
   }
   function maybeNudge() {
     if (nudgeShown || ident) return;                       // ya reclamado o ya mostrado
-    var enoughEls = elementCount() >= 8;                   // dibujó algo real (>4 muros base)
-    var enoughTime = (Date.now() - editStart) > 180000;    // 3 min
+    // No pedirle que guarde algo que todavía no hace suyo:
+    //  · con un modal abierto el aviso queda debajo y solo estorba;
+    //  · sin terreno elegido, el lienzo trae una geometría de MUESTRA heredada
+    //    (22 elementos) que disparaba el aviso al segundo de entrar.
+    if (document.querySelector('.ck-overlay:not([hidden])')) return;
+    var g = null;
+    try { g = ed.getGeom(); } catch (e) {}
+    if (!g || !g.lot) return;                              // aún no hay terreno propio
+    var propios = elementCount() - 4;                      // los 4 muros del terreno no cuentan
+    var enoughEls = propios >= 4;                          // ya dibujó algo suyo
+    var enoughTime = (Date.now() - editStart) > 180000 && propios >= 1;
     if (enoughEls || enoughTime) { nudgeShown = true; ensureNudge(); track('nudge_visto', enoughEls ? 'elementos' : 'tiempo'); }
   }
 

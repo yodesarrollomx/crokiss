@@ -151,6 +151,30 @@ Solo front: **no requiere re-desplegar nada.**
 - **Espacios de Aurum** (plantillas curadas, definidas como **datos**): Recámara 3.00×3.00, Baño 1.50×2.40, Cocina lineal 3.00×2.20. Un tap coloca muros + muebles + etiqueta ya nombrada.
 - **Chip de medida** junto al puntero durante arrastre/escala/rotación (`0.90 m`, `1.60 × 2.00`, `45°`). Es un elemento del SVG re-dibujado, sin transiciones, y muere al soltar.
 
+### Enjambre de UX (2026-07-26) — 6 personas sobre la página real
+
+Recorrido manual en **390 px** y en escritorio, con seis lentes distintas (edad, escolaridad, dispositivo, grosor de dedo): Doña Carmen 62 · Don Rafa 71 · Sofía 19 · Miguel 28 (maestro de obra) · Ana 45 · Luis 34. No fue revisión de código: se tocó, se arrastró y se midió.
+
+**Lo que estaba sano:** 28 botones probados uno por uno, **cero errores de JS** y ninguno tapado o inalcanzable. El pinch de P3, la cota editable de P5 y el flujo completo de guardado funcionaron a la primera.
+
+**Lo que estaba roto y se arregló:**
+
+| # | Qué pasaba | Por qué importaba |
+|---|---|---|
+| 1 | El aviso de guardado se salía de la pantalla (llegaba a x=407 en 390 px) y **su botón quedaba fuera del alcance** | Es el CTA de captación. En un teléfono, **no había forma de tocarlo** |
+| 2 | El aviso salía al segundo de entrar, con el modal de terreno abierto | Contaba los 22 elementos de la geometría de **muestra heredada**, no los del usuario. Pedía guardar algo que nadie había hecho |
+| 3 | Un toque corto con "+ Muro" armado **desarmaba la herramienta** | Dedo grueso = toque en vez de arrastre. El aviso decía "arrastra", pero para entonces ya no había herramienta: la persona arrastra y no pasa nada |
+| 4 | Barra de info, toast y aviso **se encimaban los tres** abajo | Tres capas de texto ilegibles justo donde vive la acción |
+| 5 | Botones de barra de 37 px; cerrar del aviso de 15×21 y fuera de pantalla | Por debajo del mínimo cómodo (44 px). Para 62 y 71 años, decisivo |
+| 6 | La cota tocable medía 52×18 px | Teclear la medida exacta es lo que separa "dibujar a ojo" de "poner 3.40" |
+| 7 | La barra volvió a 3 filas (140 px) al entrar "+ Habitación" en P5 | Deshacía la ganancia de P3 |
+
+**Resultado medido en 390 px:** barra **2 filas / 111 px (14%)**, botones de 44 px, cota de 60×44, aviso completo dentro de pantalla con CTA de 137×44, **cero solapes**. En escritorio, el aviso y el toast dejaron de pisar la barra de info.
+
+Todo quedó fijado con 13 pruebas nuevas en `pruebas/harness.js` para que no vuelva.
+
+> **Regla de pruebas (aprendida a la mala):** para probar la app **nunca** se usa producción. Se levanta una copia con el `ENDPOINT` apuntando a un servidor local de mentiras. Interceptar `fetch` desde la consola **no sirve**: cualquier recarga se lleva la intercepción y el siguiente guardado crea un lead real.
+
 ## Pendiente (backend, para segunda ronda — NO shippeado por riesgo)
 
 Todo lo de esta lista **ya se hizo** en P1–P6: hasheo de clave con migración (P2), poda del Historial y búsqueda por TextFinder (P1), y alerta de salud (`healthPing`, P1). Se conserva el respaldo semanal (`respaldoSemanal`) del trigger de junio.

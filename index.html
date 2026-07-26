@@ -86,7 +86,7 @@
   .palette .ptitle{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
   .palette .ptitle b{font-size:12px;letter-spacing:1px;}
   .palette .pclose{border:0;background:none;font-size:16px;cursor:pointer;color:var(--muted);line-height:1;}
-  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:11px 20px;border-radius:9px;font-size:13.5px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:90;box-shadow:0 6px 24px rgba(0,0,0,.25);}
+  .toast{position:fixed;bottom:52px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:11px 20px;border-radius:9px;font-size:13.5px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:90;box-shadow:0 6px 24px rgba(0,0,0,.25);}
   .toast.show{opacity:1;}
   /* CroKiss: pill de estado */
   .ck-pill{font-size:11px;letter-spacing:.4px;padding:4px 10px;border-radius:20px;border:1px solid var(--line);color:var(--muted);background:var(--paper);white-space:nowrap;}
@@ -178,6 +178,30 @@ body.ck-solo-lectura .stage{padding:20px;}
 #masMenu{display:contents;}
 /* el doble toque no debe hacer zoom del navegador sobre los botones */
 .btn,.seg button,.ck-chip,.palette .pbtn{touch-action:manipulation;}
+
+/* ===== aviso de guardado (nudge) =====
+   Se ancla a los DOS costados en vez de centrarse con translate: así no
+   puede salirse de una pantalla angosta. Su botón es el CTA de captación
+   de leads; si no se alcanza, no hay lead. */
+.ck-nudge{
+  position:fixed;left:14px;right:14px;bottom:50px;max-width:640px;margin:0 auto;z-index:60;
+  background:var(--ink);color:#f5f1ea;border-radius:12px;padding:12px 14px;
+  box-shadow:0 10px 34px rgba(0,0,0,.32);font-family:var(--fl);font-size:14px;
+  display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+}
+.ck-nudge-txt{flex:1 1 190px;min-width:0;line-height:1.35;}
+.ck-nudge-go{
+  flex:0 0 auto;background:var(--accent);color:#fff;border:0;border-radius:8px;
+  padding:11px 15px;font:inherit;font-weight:600;cursor:pointer;min-height:44px;
+}
+/* cerrar era de 15×21 px y se salía de la pantalla: imposible de atinar */
+.ck-nudge-x{
+  flex:0 0 auto;background:none;border:0;color:#cdbfb0;font-size:22px;line-height:1;
+  cursor:pointer;min-width:44px;min-height:44px;border-radius:8px;
+}
+.ck-nudge-x:hover{background:rgba(255,255,255,.1);color:#fff;}
+/* con el aviso presente, el toast se sube por encima de él */
+body.con-nudge .toast{bottom:calc(50px + var(--nudgeH, 76px) + 10px);}
 /* etiquetas largas en escritorio, cortas en el teléfono */
 .solo-mov{display:none;}
 
@@ -193,8 +217,9 @@ body.ck-solo-lectura .stage{padding:20px;}
   .solo-esc{display:none;}
   .solo-mov{display:inline;}
   /* el pill dice el estado, no una frase: en 390 px se recorta con puntos */
-  .ck-pill{max-width:74px;overflow:hidden;text-overflow:ellipsis;font-size:10.5px;padding:4px 8px;}
-  .btn{padding:8px 9px;font-size:12px;gap:4px;}
+  .ck-pill{max-width:56px;overflow:hidden;text-overflow:ellipsis;font-size:10.5px;padding:4px 8px;}
+  /* 44 px es el mínimo cómodo para un dedo (antes: 37 px) */
+  .btn{padding:8px 7px;font-size:12px;gap:3px;min-height:44px;}
   /* dentro del menú el zoom vuelve a ser una fila normal con su etiqueta */
   #masMenu .zoomgrp{display:flex;align-items:center;gap:6px;}
   #masMenu .zoomgrp .lbl{display:inline;}
@@ -210,8 +235,18 @@ body.ck-solo-lectura .stage{padding:20px;}
   #masMenu.open{display:flex;}
   #masMenu .btn{justify-content:flex-start;width:100%;padding:11px 12px;font-size:13.5px;}
   .stage{padding:12px;}
-  .info{padding:8px 10px;gap:10px;font-size:12px;}
+  /* la barra de info se apilaba en 3 renglones y chocaba con el toast y el
+     aviso: ahora es UNA fila que se desliza si no cabe */
+  .info{padding:6px 10px;gap:8px;font-size:12px;flex-wrap:nowrap;overflow-x:auto;
+        height:52px;-webkit-overflow-scrolling:touch;}
+  .info > *{flex:0 0 auto;}
+  .info #ed_info{white-space:nowrap;}
   .info .hint{display:none;}
+  .info .spacer{display:none;}
+  /* toast y aviso viven ARRIBA de la barra de info, nunca encima de ella */
+  .toast{bottom:64px;max-width:calc(100vw - 28px);}
+  .ck-nudge{bottom:62px;}
+  body.con-nudge .toast{bottom:calc(62px + var(--nudgeH, 76px) + 10px);}
   /* la paleta entra desde abajo como hoja: en 390 px ya no tapa el lienzo */
   .palette{
     top:auto;left:0;right:0;bottom:0;width:auto;max-width:none;
@@ -263,7 +298,7 @@ body.ck-solo-lectura .stage{padding:20px;}
       <button class="btn" id="addWin"><span class="solo-esc">+ </span>Ventana</button>
       <button class="btn" id="addDoor"><span class="solo-esc">+ </span>Puerta</button>
       <button class="btn" id="addSld"><span class="solo-esc">+ </span>Corrediza</button>
-      <button class="btn" id="addRoom" title="Arrastra un rectángulo y salen sus 4 muros"><span class="solo-esc">+ </span>Habitación</button>
+      <button class="btn" id="addRoom" title="Arrastra un rectángulo y salen sus 4 muros"><span class="solo-esc">+ Habitación</span><span class="solo-mov">Cuarto</span></button>
       <button class="btn" id="furnBtn" title="Muebles">🛋<span class="solo-esc"> Muebles</span></button>
       <button class="btn" id="labelBtn" title="Etiqueta">🔖<span class="solo-esc"> Etiqueta</span></button>
     </div>
