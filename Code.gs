@@ -30,19 +30,10 @@
  * ---------------------------------------------------------------------------
  *
  * ============================ TRIGGERS (crear UNA vez) ======================
- * En el editor de Apps Script → menú izquierdo → Activadores (reloj) →
- * "+ Añadir activador":
- *
- *   1) Función: podarHistorial · Implementación: Principal ·
- *      Origen: Según tiempo · Tipo: Temporizador diario · ej. 3-4 a.m.
- *      (conserva 20 versiones por plano y borra lo que pase de 90 días)
- *
- *   2) Función: healthPing · Implementación: Principal ·
- *      Origen: Según tiempo · Tipo: Temporizador por horas · Cada hora
- *      (si la hoja deja de responder, te avisa por correo)
- *
- *   3) Función: respaldoSemanal (si existe en tu copia) · Temporizador
- *      semanal · lunes 4-5 a.m.
+ * NO hace falta navegar el menú de Activadores. En el editor de Apps Script,
+ * elige la función  instalarTriggers  en el selector de arriba y dale ▶.
+ * Crea los dos activadores de mantenimiento (podarHistorial diario a las 3 a.m.
+ * y healthPing cada hora) y no los duplica si vuelves a correrla.
  * ===========================================================================
  ***************************************************************************/
 
@@ -735,3 +726,35 @@ function healthPing() {
 
 /* Corre esto UNA vez para crear las pestañas y autorizar permisos. */
 function setup() { _sheet(CONFIG.SHEET_PLANOS); _sheet(CONFIG.SHEET_HISTORIAL); _hojaEventos(); }
+
+/* ============================================================================
+ * instalarTriggers() — CÓRRELA UNA SOLA VEZ y ya no toques nada más.
+ *
+ * En el editor de Apps Script: elige "instalarTriggers" en el selector de
+ * funciones (arriba, junto al ▶) y dale ▶. Autoriza cuando lo pida.
+ * Crea los dos activadores de mantenimiento sin que tengas que navegar el
+ * menú de Activadores. Es idempotente: si los corres de nuevo, no duplica.
+ * ========================================================================== */
+function instalarTriggers() {
+  var deseados = [
+    { fn: 'podarHistorial', tipo: 'diario' },   // 3-4 a.m.
+    { fn: 'healthPing',     tipo: 'horas'  }    // cada hora
+  ];
+  var existentes = ScriptApp.getProjectTriggers();
+  var yaHay = {};
+  existentes.forEach(function (t) { yaHay[t.getHandlerFunction()] = true; });
+
+  var creados = [], omitidos = [];
+  deseados.forEach(function (d) {
+    if (yaHay[d.fn]) { omitidos.push(d.fn); return; }
+    if (d.tipo === 'diario') ScriptApp.newTrigger(d.fn).timeBased().atHour(3).everyDays(1).create();
+    else                     ScriptApp.newTrigger(d.fn).timeBased().everyHours(1).create();
+    creados.push(d.fn);
+  });
+
+  var msg = 'Triggers creados: ' + (creados.join(', ') || 'ninguno') +
+            ' · ya existían: ' + (omitidos.join(', ') || 'ninguno');
+  console.log(msg);
+  try { SpreadsheetApp.getActiveSpreadsheet().toast(msg, 'CroKiss', 8); } catch (e) {}
+  return msg;
+}
