@@ -53,11 +53,11 @@ var CONFIG = {
   SITE_BASE:        'https://alexpueblag.github.io/crokiss/',  // tu URL de GitHub Pages
   EDITOR_FILE:      'index.html',
   REMITENTE_NOMBRE: 'CroKiss · Aurum Arquitectos',
-  /* CTA del pie del correo. ⚠️ ALEJANDRO: mismo número que en
-     crokiss-cloud.js (CONFIG.WHATSAPP). Cambia XXXXXXXXXX por el WhatsApp de
-     Aurum, con lada 52 y sin espacios. Mientras tenga XXXXXXXXXX el correo
-     invita a responder, como hasta ahora. */
-  WHATSAPP:         'https://wa.me/52XXXXXXXXXX',
+  /* CTA del pie del correo. Debe ser el MISMO número que en crokiss-cloud.js
+     (CONFIG.WHATSAPP). Si Aurum usa otro WhatsApp, cambia los dígitos en los
+     dos archivos: 521 + 10 dígitos, sin espacios ni signos. Si alguna vez
+     queda con XXXXXXXXXX, el correo vuelve a invitar a responder. */
+  WHATSAPP:         'https://wa.me/5216623184512',   // el que ya publica yodesarrollo.mx
   ALERTA_CORREO:    'direccion@aurumarquitectos.com',   // a quién avisa healthPing()
 
   // Tope del plano. El límite duro de Sheets es ~50.000 caracteres por celda:

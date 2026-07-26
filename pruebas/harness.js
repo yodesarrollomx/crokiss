@@ -436,11 +436,22 @@ async function main() {
   ok(/navigator\.sendBeacon\(CONFIG\.ENDPOINT, blob\)/.test(cloud4) && /function evBeacon/.test(cloud4),
      'lo pendiente se manda con sendBeacon al cerrar la pestaña');
 
-  // CTA de WhatsApp
-  ok(/wa\.me\/52X{10}/.test(cloud4), 'el CTA apunta a wa.me con el número por rellenar');
-  ok(/ALEJANDRO/.test(cloud4), 'y está comentado con todas sus letras para que lo ponga');
-  ok(win.CroKiss.contactURL().indexOf('mailto:') === 0,
-     'mientras no haya número real, el CTA cae al correo (nunca un enlace roto)');
+  // CTA de WhatsApp: ya lleva número real (el que publica yodesarrollo.mx)
+  const waCliente = (cloud4.match(/wa\.me\/(\d{10,15})/) || [])[1];
+  ok(!!waCliente, 'el CTA apunta a un wa.me con número real, no a un marcador');
+  ok(/^52\d{10,11}$/.test(waCliente || ''), 'con lada de México y sin espacios ni signos', waCliente);
+  ok(win.CroKiss.contactURL().indexOf('https://wa.me/') === 0,
+     'y el botón de contacto abre WhatsApp');
+  // el mismo número debe estar en el pie del correo (Code.gs), o el lead
+  // llegaría a dos lugares distintos según por dónde entre
+  const gs = fs.readFileSync(path.join(RAIZ, 'Code.gs'), 'utf8');
+  const waBackend = (gs.match(/wa\.me\/(\d{10,15})/) || [])[1];
+  ok(waBackend === waCliente, 'el pie del correo usa el MISMO número que la app',
+     'cliente=' + waCliente + ' backend=' + waBackend);
+  // y si algún día vuelve a quedar sin número, no debe romperse el enlace
+  ok(/X\{5,\}/.test(cloud4) || /\/X\{5,\}\/\.test\(CONFIG\.WHATSAPP\)/.test(cloud4) ||
+     /test\(CONFIG\.WHATSAPP\)/.test(cloud4),
+     'sigue existiendo la caída a correo si el número se borra');
 
   // clave sugerida, que además cumple el formato que exige el backend (P2)
   $('ck_g_clave').value = '';

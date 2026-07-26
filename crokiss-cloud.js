@@ -20,11 +20,11 @@
     // silencio). Mejor detenerlo aquí y decirlo con todas sus letras.
     MAX_GEOM_BYTES: 45000,
     /* CTA de la pantalla de éxito y del pie del correo.
-       ⚠️ ALEJANDRO: cambia los XXXXXXXXXX por el número de WhatsApp de Aurum
-       con lada de país y SIN espacios ni signos. México = 52 + 10 dígitos.
-       Ejemplo real: 'https://wa.me/526621234567?text=...'
-       Mientras tenga XXXXXXXXXX el botón cae solo al correo (ver contactURL). */
-    WHATSAPP: 'https://wa.me/52XXXXXXXXXX?text=' +
+       Es el WhatsApp que ya publica yodesarrollo.mx (662 318 4512). Si Aurum
+       usa otro número, cambia SOLO los dígitos de aquí abajo: es la única
+       línea que hay que tocar, y el pie del correo lo lee de Code.gs.
+       Formato: 521 + los 10 dígitos, sin espacios ni signos. */
+    WHATSAPP: 'https://wa.me/5216623184512?text=' +
       encodeURIComponent('Hola Aurum, hice mi croquis en CroKiss y quiero que lo vean.'),
     CONTACT_URL: 'mailto:direccion@aurumarquitectos.com?subject=Quiero%20que%20Aurum%20revise%20mi%20croquis%20CroKiss'
   };
