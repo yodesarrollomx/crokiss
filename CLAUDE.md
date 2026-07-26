@@ -74,6 +74,26 @@ Los commits `dcbd102` y `975b699` se construyeron desde copias/zips viejos en ve
 - **Límites**: correo ≤120, clave 6-40. El mínimo de 6 aplica **solo a cuentas nuevas** — una cuenta vieja con clave corta sigue entrando (compatibilidad sagrada, probada).
 - **Mantenimiento**: `podarHistorial()` (20 versiones por plano, borra >90 días, sin leer el blob) y `healthPing()` (avisa por correo si la hoja deja de responder, máx. 1 aviso/6 h). **Los 2 triggers se crean a mano una vez** — instrucciones en la cabecera de `Code.gs`.
 
+### 🚨 2026-07-26 — El backend vivo NO era el del repo (casi rompemos a todos)
+
+Al ir a desplegar, Alejandro pegó el `Code.gs` que **de verdad corre** en Apps Script. Sorpresa: **ya tenía el hasheo de clave**. El commit `975b699` revirtió el hasheo **solo en el repo**; en Apps Script nunca se revirtió. La documentación decía "pendiente" y llevaba semanas hecho.
+
+**El esquema vivo, que es intocable:**
+
+| | Vivo en producción (correcto) | Lo que yo había escrito (habría destruido) |
+|---|---|---|
+| Columnas | `… source, geom_json, clave_hash, salt` | `… source, clave_hash, geom_json` |
+| Hash | `SHA-256(sal_de_la_fila + ':' + clave)` en **hex** | `SHA-256(correo\|clave\|SALT_global)` en base64 |
+| Sal | **Una por fila**, en su columna | Una global en `PropertiesService` |
+
+**Qué habría pasado si lo despliego:** toda fila ya migrada tiene `clave` vacía y su hash con sal propia. Mi código habría calculado otro hash, no habría coincidido, y el respaldo a texto plano tampoco (está vacío). **Todos los usuarios ya migrados habrían perdido su plano para siempre** — el texto plano de su clave no existe en ningún lado, no hay forma de recalcularlo. Irreversible.
+
+**Cómo quedó:** el `Code.gs` nuevo conserva el esquema vivo **exacto** (`_sha256Hex`, `_hashClave` con sal por fila, `_claveOk`/`_claveOkArr`, `_ensureHeader` que agrega columnas al final sin mover nada) y encima le suma todo lo de P1/P2/P4/P6. Como `geom_json` ya no es la última columna, `_meta()` lee los metadatos en **dos tramos** saltándose el blob — la lectura quirúrgica se conserva.
+
+**Blindado con pruebas:** `pruebas/backend.js` construye una fila *exactamente* como la deja el código vivo y verifica que el nuevo la reconozca al abrir, listar y guardar. Si alguien vuelve a cambiar el esquema, esa prueba se pone roja antes de que nadie pierda nada.
+
+> **Regla que sale de aquí:** el repo **no es** la fuente de verdad de lo que corre en Apps Script. Antes de tocar `Code.gs`, **pide el que está pegado en el editor y compáralo**. Un backend se despliega a mano; el repo puede ir atrasado, adelantado o divergente.
+
 ### P2 (2026-07-25) — correo desarmado + la clave deja de estar en claro
 
 ⚠️ **Requiere re-desplegar `Code.gs`.** El front ya está preparado para los dos backends (ver "negociación" abajo).

@@ -32,9 +32,12 @@ function grupo(n) { console.log('\n' + n); }
 // Esquema anterior a P2: la clave vive en claro y no hay columna de hash.
 const H_VIEJO = ['ts','plan_id','client_id','nombre','correo','clave',
                  'plan_name','version','marketing','source','geom_json'];
-// Esquema de P2: clave_hash antes de geom_json (el blob siempre al final).
+// Esquema VIVO en producción: clave_hash y salt van DESPUÉS de geom_json.
+// No es lo que uno diseñaría de cero, pero es lo que hay y reordenarlo dejaría
+// fuera a todos los usuarios ya migrados.
 const H_NUEVO = ['ts','plan_id','client_id','nombre','correo','clave',
-                 'plan_name','version','marketing','source','clave_hash','geom_json'];
+                 'plan_name','version','marketing','source','geom_json',
+                 'clave_hash','salt'];
 
 /* ================= stubs mínimos de Apps Script ================= */
 
@@ -79,9 +82,15 @@ function hojaFalsa(nombre, filas, headers) {
           sh.escrituras.push({ tipo: 'setValue', fila, col, v });
         },
         setValues(v) {
-          // la API real escribe TODO el rango, no solo la primera fila
-          v.forEach((f, i) => { sh.celdas[fila - 1 + i] = f.slice(); });
-          sh.escrituras.push({ tipo: 'set', fila, filas: v.length });
+          // La API real escribe EN EL RANGO: fila+i, columna col+j. Antes este
+          // doble pisaba la fila entera desde la columna 1, lo que hacía ver
+          // como bug del backend algo que solo era el simulador.
+          v.forEach((f, i) => {
+            const r = fila - 1 + i;
+            if (!sh.celdas[r]) sh.celdas[r] = [];
+            f.forEach((val, j) => { sh.celdas[r][col - 1 + j] = val; });
+          });
+          sh.escrituras.push({ tipo: 'set', fila, col, filas: v.length });
         },
         // TextFinder acotado a ESTE rango (lo que hace _rowByPlanId)
         createTextFinder(texto) {
@@ -110,6 +119,10 @@ function hojaFalsa(nombre, filas, headers) {
 }
 
 const SALT_FIJO = 'salt-de-prueba-0000';
+// Igual que Code.gs: SHA-256(sal + ':' + clave) en hexadecimal
+function hashConSal(sal, clave) {
+  return crypto.createHash('sha256').update(sal + ':' + String(clave)).digest('hex');
+}
 
 function entorno(opciones) {
   opciones = opciones || {};
@@ -181,11 +194,8 @@ function entorno(opciones) {
 const resp = (r) => JSON.parse(r._t);
 const post = (sandbox, b) => resp(sandbox.doPost({ postData: { contents: JSON.stringify(b) } }));
 
-// hash esperado, calculado igual que Code.gs
-function hashDe(correo, clave) {
-  return crypto.createHash('sha256')
-    .update(String(correo).toLowerCase() + '|' + clave + '|' + SALT_FIJO).digest('base64');
-}
+// hash esperado, calculado igual que Code.gs (sal por fila, hex)
+function hashDe(correo, clave) { return hashConSal(SALT_FIJO, clave); }
 
 /* geom_json GRANDE a propósito, para probar que no se lee */
 const BLOB = '{"walls":[' + '{"x1":0,"y1":0,"x2":1,"y2":0},'.repeat(400) + '{"x1":0,"y1":0,"x2":1,"y2":0}]}';
@@ -205,9 +215,9 @@ const GEOM_VACIO = { walls: GEOM_REAL.walls, windows: [], doors: [], sliders: []
 function filaVieja(id, correo, clave, nombrePlan) {   // esquema H_VIEJO, clave en claro
   return [new Date(), id, 'cli1', 'Ana', correo, clave, nombrePlan || 'Mi proyecto', 1, 'no', 'crokiss-web', BLOB];
 }
-function filaMigrada(id, correo, clave, nombrePlan) { // esquema H_NUEVO, clave vacía + hash
+function filaMigrada(id, correo, clave, nombrePlan) { // esquema VIVO: clave vacía + hash + sal
   return [new Date(), id, 'cli1', 'Ana', correo, '', nombrePlan || 'Mi proyecto', 1, 'no', 'crokiss-web',
-          hashDe(correo, clave), BLOB];
+          BLOB, hashConSal(SALT_FIJO, clave), SALT_FIJO];
 }
 
 /* =========================== PRUEBAS =========================== */
@@ -228,9 +238,11 @@ grupo('Lecturas quirúrgicas (el techo de escala de P1)');
   ok(r.correo === undefined, 'sin credenciales tampoco devuelve el correo');
 
   const gi = planos.colDe('geom_json');
+  const contiene = (l, c) => l.col <= c && c <= l.col + l.nCols - 1;
   const barridos = planos.lecturas.filter((l) => l.nFilas > 1);
-  const tocaronBlob = barridos.filter((l) => l.col + l.nCols - 1 >= gi);
-  ok(tocaronBlob.length === 0, 'ningún barrido de filas incluye la columna geom_json',
+  const tocaronBlob = barridos.filter((l) => contiene(l, gi));
+  ok(tocaronBlob.length === 0,
+     'ningún barrido de filas incluye la columna geom_json (se lee en dos tramos, saltándola)',
      JSON.stringify(tocaronBlob));
 
   const celdaBlob = planos.lecturas.filter((l) => l.nFilas === 1 && l.col === gi);
@@ -247,7 +259,7 @@ grupo('Lecturas quirúrgicas (el techo de escala de P1)');
   ok(r.ok && r.count === 1, 'action=list encuentra por credenciales');
   ok(!('geom' in (r.items[0] || {})), 'list no devuelve geometría');
   const gi = planos.colDe('geom_json');
-  ok(planos.lecturas.filter((l) => l.nFilas > 1 && l.col + l.nCols - 1 >= gi).length === 0,
+  ok(planos.lecturas.filter((l) => l.nFilas > 1 && l.col <= gi && gi <= l.col + l.nCols - 1).length === 0,
      'list tampoco lee geom_json');
 }
 
@@ -281,30 +293,78 @@ grupo('Migración de clave · cuenta VIEJA (texto plano)');
   const r = post(sandbox, { mode: 'save', plan_id: 'ck1', correo: 'ana@x.com', clave: 'clave-uno', geom: GEOM_REAL });
   ok(r.ok === true, 'y puede GUARDAR con su clave de siempre');
   ok(planos.headers().indexOf('clave_hash') >= 0, 'la columna clave_hash se crea sola');
-  ok(planos.headers().indexOf('clave_hash') < planos.headers().indexOf('geom_json'),
-     'y queda ANTES de geom_json (el blob sigue siendo la última columna)');
+  ok(planos.headers().indexOf('salt') >= 0, 'y también la columna salt');
+  ok(planos.headers().indexOf('clave_hash') > planos.headers().indexOf('geom_json'),
+     'se agregan AL FINAL, respetando el orden que ya existe en producción');
 
   const fila = planos.celdas[1];
-  const cH = planos.colDe('clave_hash') - 1, cC = planos.colDe('clave') - 1;
-  ok(String(fila[cH]) === hashDe('ana@x.com', 'clave-uno'), 'la fila quedó con el hash correcto');
-  ok(String(fila[cC]) === '', 'y la celda de clave en claro quedó VACÍA');
+  const cH = planos.colDe('clave_hash') - 1, cS = planos.colDe('salt') - 1, cC = planos.colDe('clave') - 1;
+  ok(!!String(fila[cH]) && !!String(fila[cS]), 'la fila quedó con hash y sal propios');
+  ok(String(fila[cH]) === hashConSal(String(fila[cS]), 'clave-uno'),
+     'y el hash corresponde a esa sal y esa clave');
+  ok(String(fila[cC]) === '', 'la celda de clave en claro quedó VACÍA');
 }
 {
   // migración al solo ABRIR (sin guardar), sobre hoja que ya tiene la columna
   const planos = hojaFalsa('Planos', [
-    [new Date(), 'ck1', 'c', 'Ana', 'ana@x.com', 'clave-uno', 'Mi proyecto', 1, 'no', 'crokiss-web', '', BLOB]
+    [new Date(), 'ck1', 'c', 'Ana', 'ana@x.com', 'clave-uno', 'Mi proyecto', 1, 'no', 'crokiss-web', BLOB, '', '']
   ], H_NUEVO);
   const { sandbox } = entorno({ hojas: { Planos: planos } });
   const r = resp(sandbox.doGet({ parameter: { action: 'plan', id: 'ck1', correo: 'ana@x.com', clave: 'clave-uno' } }));
   ok(r.ok === true, 'abrir con clave correcta funciona sobre fila sin migrar');
   const fila = planos.celdas[1];
-  ok(String(fila[planos.colDe('clave_hash') - 1]) === hashDe('ana@x.com', 'clave-uno'),
-     'ABRIR migra la fila en ese momento');
+  const hM = String(fila[planos.colDe('clave_hash') - 1]), sM = String(fila[planos.colDe('salt') - 1]);
+  ok(!!hM && hM === hashConSal(sM, 'clave-uno'), 'ABRIR migra la fila en ese momento');
   ok(String(fila[planos.colDe('clave') - 1]) === '', 'y borra la clave en claro');
 
   // y después de migrada sigue entrando
   const r2 = resp(sandbox.doGet({ parameter: { action: 'plan', id: 'ck1', correo: 'ana@x.com', clave: 'clave-uno' } }));
   ok(r2.ok === true, 'tras migrar, la misma clave sigue funcionando');
+}
+
+grupo('COMPATIBILIDAD con el backend que YA corre en producción');
+{
+  /* Esta es la prueba que evita el desastre. El Code.gs vivo hashea así:
+       hash = SHA-256( sal_de_la_fila + ':' + clave )   en hexadecimal
+     y guarda la sal en su propia columna, DESPUÉS de geom_json.
+     Aquí se construye una fila EXACTAMENTE como la dejó ese código y se
+     comprueba que el backend nuevo la sigue reconociendo. Si esto falla,
+     desplegar dejaría fuera a todos los usuarios ya migrados, y sin vuelta
+     atrás: el texto plano de su clave ya no existe en ningún lado. */
+  const salReal = '7f3a9c11-2b4d-4e8a-9f01-aabbccddeeff';   // como la genera getUuid
+  const hashReal = hashConSal(salReal, 'la-clave-de-ana');
+  const filaDelVivo = [new Date(), 'ckVIVO', 'cli9', 'Ana', 'ana@x.com', '',
+                       'Casa de Ana', 7, 'si', 'crokiss-web', BLOB, hashReal, salReal];
+  const planos = hojaFalsa('Planos', [filaDelVivo]);
+  const { sandbox } = entorno({ hojas: { Planos: planos,
+    Historial: hojaFalsa('Historial', [], ['ts','plan_id','plan_name','correo','version','geom_json']) } });
+
+  ok(resp(sandbox.doGet({ parameter: { action: 'plan', id: 'ckVIVO',
+        correo: 'ana@x.com', clave: 'la-clave-de-ana' } })).ok === true,
+     'ABRIR: una fila hasheada por el backend vivo sigue validando');
+  ok(resp(sandbox.doGet({ parameter: { correo: 'ana@x.com', clave: 'la-clave-de-ana' } })).count === 1,
+     'LISTAR: también la encuentra');
+  ok(post(sandbox, { mode: 'save', plan_id: 'ckVIVO', correo: 'ana@x.com',
+        clave: 'la-clave-de-ana', geom: GEOM_REAL }).ok === true,
+     'GUARDAR: puede seguir guardando encima de su propio plano');
+  ok(resp(sandbox.doGet({ parameter: { action: 'plan', id: 'ckVIVO',
+        correo: 'ana@x.com', clave: 'otra-clave' } })).error === 'no_autorizado',
+     'y una clave incorrecta se sigue rechazando');
+
+  // el re-guardado mantiene el esquema (hash+sal propios, clave en claro vacía)
+  const f = planos.celdas[1];
+  const cH = planos.colDe('clave_hash') - 1, cS = planos.colDe('salt') - 1;
+  ok(String(f[cH]) === hashConSal(String(f[cS]), 'la-clave-de-ana'),
+     'y tras guardar sigue con hash y sal consistentes');
+  ok(String(f[planos.colDe('clave') - 1]) === '', 'sin reaparecer la clave en claro');
+}
+{
+  // el orden de columnas de producción es intocable
+  const { sandbox } = entorno({ hojas: { Planos: hojaFalsa('Planos', []) } });
+  const H = sandbox.HEADERS;
+  ok(H.indexOf('geom_json') === 10, 'geom_json sigue siendo la columna 11');
+  ok(H.indexOf('clave_hash') === 11 && H.indexOf('salt') === 12,
+     'clave_hash y salt siguen siendo la 12 y la 13, como en la hoja real', JSON.stringify(H));
 }
 
 grupo('Migración de clave · cuenta YA MIGRADA');
@@ -343,18 +403,19 @@ grupo('Migración de clave · proyecto NUEVO nace hasheado');
   const { sandbox } = entorno({ hojas: { Planos: planos, Historial: hojaFalsa('Historial', [], ['ts','plan_id','plan_name','correo','version','geom_json']) } });
   const r = post(sandbox, { mode: 'save', correo: 'nuevo@x.com', clave: 'clave-nueva', geom: GEOM_REAL });
   ok(r.ok && r.isNew, 'se crea el proyecto');
-  const fila = planos.celdas[1];
-  ok(String(fila[planos.colDe('clave_hash') - 1]) === hashDe('nuevo@x.com', 'clave-nueva'), 'nace con hash');
-  ok(String(fila[planos.colDe('clave') - 1]) === '', 'y JAMÁS escribe la clave en claro');
+  const filaN = planos.celdas[1];
+  const hN = String(filaN[planos.colDe('clave_hash') - 1]), sN = String(filaN[planos.colDe('salt') - 1]);
+  ok(!!hN && hN === hashConSal(sN, 'clave-nueva'), 'nace con hash y sal propios');
+  ok(String(filaN[planos.colDe('clave') - 1]) === '', 'y JAMÁS escribe la clave en claro');
 }
 {
-  // el SALT se crea solo si falta, y no cambia entre llamadas
-  const { sandbox, props } = entorno({ hojas: { Planos: hojaFalsa('Planos', []) }, props: [] });
-  const h1 = sandbox._hashClave('a@x.com', 'clave-uno');
-  const salt = props.get('CK_SALT');
-  ok(!!salt, 'el SALT se crea solo la primera vez');
-  ok(sandbox._hashClave('a@x.com', 'clave-uno') === h1, 'y es estable entre llamadas');
-  ok(sandbox._hashClave('b@x.com', 'clave-uno') !== h1, 'el correo entra al hash (dos cuentas, dos hashes)');
+  // la sal es POR FILA: dos personas con la misma clave no comparten hash
+  const { sandbox } = entorno({ hojas: { Planos: hojaFalsa('Planos', []) } });
+  const a = sandbox._hashClave('clave-uno'), b = sandbox._hashClave('clave-uno');
+  ok(a.salt !== b.salt, 'cada fila recibe una sal distinta');
+  ok(a.hash !== b.hash, 'y por lo tanto un hash distinto aunque la clave sea igual');
+  ok(a.hash === hashConSal(a.salt, 'clave-uno'), 'el hash es SHA-256(sal + ":" + clave) en hex');
+  ok(/^[0-9a-f]{64}$/.test(a.hash), 'y sale en hexadecimal de 64 caracteres, como en producción');
 }
 
 grupo('Credenciales por POST (fuera de la barra de direcciones)');

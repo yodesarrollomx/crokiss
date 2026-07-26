@@ -75,64 +75,82 @@ var CONFIG = {
   HIST_DIAS:        90             // antigüedad máxima en Historial
 };
 
-// clave_hash va ANTES de geom_json a propósito: así todos los metadatos quedan
-// contiguos en las primeras columnas y el blob sigue siendo el último (que es
-// lo que hace posible la lectura quirúrgica de P1).
+/* ⚠️ EL ORDEN DE ESTAS COLUMNAS NO SE TOCA.
+   Es exactamente el que YA existe en la hoja de producción: clave_hash y salt
+   van DESPUÉS de geom_json porque así se agregaron cuando se implementó el
+   hasheo. Reordenarlas dejaría fuera a todos los usuarios ya migrados. */
 var HEADERS = ['ts','plan_id','client_id','nombre','correo','clave',
-               'plan_name','version','marketing','source','clave_hash','geom_json'];
+               'plan_name','version','marketing','source','geom_json',
+               'clave_hash','salt'];
 
-/* ============ SEGURIDAD DE LA CLAVE (P2) ============
- * La clave se guarda HASHEADA: SHA-256(correo + '|' + clave + '|' + SALT).
- * El SALT vive en PropertiesService, se crea solo la primera vez y NUNCA se
- * cambia (cambiarlo invalidaría la clave de todos los usuarios existentes).
+/* ============ SEGURIDAD DE LA CLAVE ============
+ * ⚠️ ESTE ESQUEMA ES INTOCABLE. Es el que ya corre en producción:
  *
- * MIGRACIÓN TRANSPARENTE: las filas viejas siguen teniendo la clave en claro.
- * La primera vez que su dueño entra correctamente, se escribe el hash y se
- * VACÍA la celda de texto plano. Nadie tiene que hacer nada.
+ *     hash = SHA-256( salt_de_esa_fila + ':' + clave )   en HEXADECIMAL
  *
- * ⚠️ CONSECUENCIA: una vez desplegado esto, NO se puede volver al Code.gs
- * anterior. El backend viejo solo sabe comparar texto plano, y las filas ya
- * migradas lo tienen vacío: sus dueños quedarían fuera. Si algo sale mal,
- * corrige hacia adelante, no hacia atrás.
+ * La sal es DISTINTA por fila y vive en su propia columna. No es un salt
+ * global ni base64: si se cambia cualquiera de las dos cosas, las filas ya
+ * migradas dejan de validar y —como su columna 'clave' quedó vacía— sus
+ * dueños pierden el acceso a su plano PARA SIEMPRE (el texto plano ya no
+ * existe en ningún lado, no hay forma de recalcularlo).
+ *
+ * MIGRACIÓN TRANSPARENTE: las filas viejas que todavía tienen la clave en
+ * claro se validan por texto plano y se hashean en ese momento. Nadie tiene
+ * que hacer nada. migrateHashes() hace lo mismo de golpe, si se prefiere.
  */
-function _salt() {
-  var props = PropertiesService.getScriptProperties();
-  var s = props.getProperty('CK_SALT');
-  if (!s) { s = Utilities.getUuid(); props.setProperty('CK_SALT', s); }
-  return s;
-}
-function _hashClave(correo, clave) {
-  var base = String(correo || '').toLowerCase() + '|' + String(clave || '') + '|' + _salt();
-  return Utilities.base64Encode(
-    Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, base, Utilities.Charset.UTF_8));
-}
-/* ¿Esta fila pertenece a estas credenciales? Compara contra el hash si la fila
-   ya está migrada, y contra el texto plano si todavía no. NO escribe nada:
-   se usa dentro de barridos, donde migrar fila por fila sería carísimo. */
-function _match(fila, col, clave, esperado) {
-  if (col.clave_hash !== undefined) {
-    var h = String(fila[col.clave_hash] || '');
-    if (h) return h === esperado;
+function _sha256Hex(str) {
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(str), Utilities.Charset.UTF_8);
+  var hex = '';
+  for (var i = 0; i < bytes.length; i++) {
+    var b = (bytes[i] + 256) % 256;                 // computeDigest devuelve bytes con signo
+    hex += (b < 16 ? '0' : '') + b.toString(16);
   }
-  return String(fila[col.clave] || '') === String(clave);
+  return hex;
+}
+function _hashClave(plain) {
+  var salt = Utilities.getUuid();
+  return { salt: salt, hash: _sha256Hex(salt + ':' + String(plain)) };
+}
+/* Verifica desde los 3 campos crudos. Con hash+sal usa el hash; si la fila es
+   vieja (sin hash), cae a texto plano. */
+function _claveOkFields(claveCell, hashCell, saltCell, input) {
+  var h = String(hashCell || ''), s = String(saltCell || '');
+  if (h && s) return _sha256Hex(s + ':' + String(input || '')) === h;
+  return String(claveCell || '') === String(input || '');
+}
+function _claveOk(rowObj, input) {
+  return _claveOkFields(rowObj.clave, rowObj.clave_hash, rowObj.salt, input);
+}
+function _claveOkArr(rowArr, col, input) {
+  var h = (col.clave_hash != null) ? rowArr[col.clave_hash] : '';
+  var s = (col.salt != null) ? rowArr[col.salt] : '';
+  return _claveOkFields(rowArr[col.clave], h, s, input);
 }
 /* Migra UNA fila a hash (y vacía la clave en claro). Si falla, se traga el
    error: jamás debe impedir que alguien entre a su propio proyecto. */
-function _migraFila(sh, meta, rowIdx, esperado) {
+function _migraFila(sh, meta, rowIdx, clavePlana) {
   try {
-    if (meta.col.clave_hash === undefined) return;
-    sh.getRange(rowIdx, meta.col.clave_hash + 1).setValue(esperado);
+    if (meta.col.clave_hash == null || meta.col.salt == null) return;
+    var hh = _hashClave(clavePlana);
+    sh.getRange(rowIdx, meta.col.clave_hash + 1).setValue(hh.hash);
+    sh.getRange(rowIdx, meta.col.salt + 1).setValue(hh.salt);
     sh.getRange(rowIdx, meta.col.clave + 1).setValue('');
   } catch (err) { console.error('migración de clave fila ' + rowIdx + ': ' + err); }
 }
-/* Añade la columna clave_hash justo antes de geom_json si todavía no existe. */
-function _addClaveHash(sh, meta) {
-  try {
-    var gi = meta.col.geom_json;
-    if (gi === undefined) { sh.getRange(1, meta.header.length + 1).setValue('clave_hash'); return; }
-    sh.insertColumnBefore(gi + 1);
-    sh.getRange(1, gi + 1).setValue('clave_hash');
-  } catch (err) { console.error('no se pudo crear clave_hash: ' + err); }
+/* Garantiza que la hoja tenga TODAS las columnas de HEADERS, agregando al
+   final las que falten y SIN mover las existentes. */
+function _ensureHeader(sh) {
+  var lastCol = sh.getLastColumn();
+  var header = lastCol > 0 ? sh.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+  if (!header.length) { sh.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]); return HEADERS.slice(); }
+  var have = {}; header.forEach(function (h) { have[String(h).trim()] = true; });
+  var add = [];
+  HEADERS.forEach(function (h) { if (!have[h]) add.push(h); });
+  if (add.length) {
+    sh.getRange(1, header.length + 1, 1, add.length).setValues([add]);
+    header = header.concat(add);
+  }
+  return header;
 }
 
 /* ============================ ENTRADAS ============================ */
@@ -293,11 +311,9 @@ function doPost(e) {
 function _autorizado(sh, meta, rowIdx, row, correo, clave) {
   if (!correo && !clave) return false;
   if (String(row.correo).toLowerCase() !== String(correo || '').toLowerCase()) return false;
-  var esperado = _hashClave(correo, clave);
-  var h = String(row.clave_hash || '');
-  if (h) return h === esperado;
-  if (String(row.clave || '') !== String(clave)) return false;
-  _migraFila(sh, meta, rowIdx, esperado);        // fila vieja: se migra al entrar
+  if (!_claveOk(row, clave)) return false;
+  // Si entró por texto plano (fila vieja), se hashea en este momento.
+  if (!String(row.clave_hash || '') && String(row.clave || '')) _migraFila(sh, meta, rowIdx, clave);
   return true;
 }
 
@@ -305,10 +321,8 @@ function _autorizado(sh, meta, rowIdx, row, correo, clave) {
 function _guardarFila(mode, correo, clave, geomStr, body) {
   var sh = _sheet(CONFIG.SHEET_PLANOS);
   var meta = _meta(sh);
-  if (meta.col.clave_hash === undefined) { _addClaveHash(sh, meta); meta = _meta(sh); }
   var col = meta.col;
   var planName = String(body.plan_name || 'Mi proyecto').slice(0, 80);
-  var esperado = _hashClave(correo, clave);
 
   // ---- localizar la fila destino (sin arrastrar el blob) ----
   var rowIdx = -1, existing = null;
@@ -321,7 +335,7 @@ function _guardarFila(mode, correo, clave, geomStr, body) {
   } else {                                       // sin id: reanudar por nombre o crear
     for (var j = 0; j < meta.data.length; j++)
       if (String(meta.data[j][col.correo]).toLowerCase() === correo &&
-          _match(meta.data[j], col, clave, esperado) &&
+          _claveOkArr(meta.data[j], col, clave) &&
           String(meta.data[j][col.plan_name]) === planName) {
         rowIdx = j + 2; existing = _rowObj(meta.data[j], col); break;
       }
@@ -348,10 +362,13 @@ function _guardarFila(mode, correo, clave, geomStr, body) {
   var clientId = String(body.client_id || (existing && existing.client_id) || '').slice(0, 60);
   var marketing = body.marketing ? 'si' : ((existing && existing.marketing) || 'no');
 
-  // La clave se escribe SOLO hasheada: la celda de texto plano queda vacía.
+  // La clave se escribe SOLO hasheada, con sal nueva por fila; la celda de
+  // texto plano queda vacía. Mismo esquema que ya corre en producción.
+  var hh = _hashClave(clave);
   var rowValues = _orderRow({
     ts: now, plan_id: planId, client_id: _safeCell(clientId), nombre: _safeCell(nombre), correo: _safeCell(correo),
-    clave: '', clave_hash: esperado, plan_name: _safeCell(planName), version: version, marketing: marketing,
+    clave: '', clave_hash: hh.hash, salt: hh.salt,
+    plan_name: _safeCell(planName), version: version, marketing: marketing,
     source: 'crokiss-web', geom_json: geomStr
   }, meta.header);
 
@@ -375,13 +392,12 @@ function _guardarFila(mode, correo, clave, geomStr, body) {
 function _borraTodo(correo, clave) {
   var sh = _sheet(CONFIG.SHEET_PLANOS);
   var meta = _meta(sh), col = meta.col;
-  var esperado = _hashClave(correo, clave);
 
   var mias = [], autorizado = false;
   for (var i = 0; i < meta.data.length; i++) {
     if (String(meta.data[i][col.correo]).toLowerCase() !== correo) continue;
     mias.push(i + 2);
-    if (_match(meta.data[i], col, clave, esperado)) autorizado = true;
+    if (_claveOkArr(meta.data[i], col, clave)) autorizado = true;
   }
   if (!mias.length) return { ok: false, error: 'no_encontrado' };
   if (!autorizado)  return { ok: false, error: 'no_autorizado' };
@@ -471,15 +487,32 @@ function _sheet(name) {
    de la hoja. El blob nunca entra aquí: esta es la mejora de escala de P1. */
 function _meta(sh) {
   var lastRow = sh.getLastRow();
-  var lastCol = Math.max(sh.getLastColumn(), HEADERS.length);
-  var header  = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  var header  = _ensureHeader(sh);                  // crea clave_hash/salt si faltan
+  var lastCol = header.length;
   var col     = _colIndex(header);
-  // nMeta = columnas hasta justo antes de geom_json (en el esquema estándar, 10).
-  var gi = col.geom_json;
-  var nMeta = (gi === undefined || gi < 0) ? lastCol : gi;
-  if (nMeta < 1) nMeta = 1;
-  var data = lastRow > 1 ? sh.getRange(2, 1, lastRow - 1, nMeta).getValues() : [];
-  return { header: header, col: col, data: data, lastRow: lastRow, nMeta: nMeta };
+  var gi      = col.geom_json;                      // índice 0-based del blob
+
+  var data = [];
+  if (lastRow > 1) {
+    var n = lastRow - 1;
+    if (gi === undefined || gi < 0) {
+      data = sh.getRange(2, 1, n, lastCol).getValues();
+    } else {
+      // El blob NO está al final (clave_hash y salt van después), así que se
+      // leen DOS tramos y se salta la columna de geom_json. En el hueco se
+      // deja una cadena vacía para que los índices de `col` sigan valiendo.
+      var izq = gi > 0 ? sh.getRange(2, 1, n, gi).getValues() : null;
+      var nDer = lastCol - (gi + 1);
+      var der = nDer > 0 ? sh.getRange(2, gi + 2, n, nDer).getValues() : null;
+      for (var i = 0; i < n; i++) {
+        var fila = izq ? izq[i].slice() : [];
+        fila.push('');                              // hueco del blob, nunca leído
+        if (der) fila = fila.concat(der[i]);
+        data.push(fila);
+      }
+    }
+  }
+  return { header: header, col: col, data: data, lastRow: lastRow, nMeta: lastCol };
 }
 
 /* Localiza la fila de un plan_id con TextFinder sobre SU columna (rápido y
@@ -523,9 +556,8 @@ function _listByCredentials(correo, clave) {
   var out = [];
   if (!correo || !clave) return out;
   var sh = _sheet(CONFIG.SHEET_PLANOS), meta = _meta(sh), col = meta.col;   // sin geom_json
-  var esperado = _hashClave(correo, clave);
   for (var i = 0; i < meta.data.length; i++)
-    if (String(meta.data[i][col.correo]).toLowerCase() === correo && _match(meta.data[i], col, clave, esperado))
+    if (String(meta.data[i][col.correo]).toLowerCase() === correo && _claveOkArr(meta.data[i], col, clave))
       out.push({ plan_id: String(meta.data[i][col.plan_id]),
                  plan_name: String(meta.data[i][col.plan_name] || 'Mi proyecto'),
                  version: Number(meta.data[i][col.version]) || 1,
@@ -726,6 +758,33 @@ function healthPing() {
 
 /* Corre esto UNA vez para crear las pestañas y autorizar permisos. */
 function setup() { _sheet(CONFIG.SHEET_PLANOS); _sheet(CONFIG.SHEET_HISTORIAL); _hojaEventos(); }
+
+/* Migración opcional: hashea de golpe TODAS las filas que sigan en texto plano.
+ * Idempotente: solo toca filas con 'clave' no vacía y 'clave_hash' vacío.
+ * No hace falta correrla — el guardado y la apertura ya migran fila a fila —
+ * pero deja la hoja limpia de un jalón. Devuelve cuántas filas migró. */
+function migrateHashes() {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);                          // evita intercalado con doPost en vivo
+    var sh = _sheet(CONFIG.SHEET_PLANOS);
+    var meta = _meta(sh);                          // sin leer el blob
+    var col = meta.col;
+    var n = 0;
+    for (var i = 0; i < meta.data.length; i++) {
+      var plain = String(meta.data[i][col.clave] || '');
+      var h     = String(meta.data[i][col.clave_hash] || '');
+      if (plain && !h) { _migraFila(sh, meta, i + 2, plain); n++; }
+    }
+    console.log('migrateHashes: ' + n + ' filas hasheadas');
+    return n;
+  } catch (err) {
+    console.error('migrateHashes: ' + err);
+    return -1;
+  } finally {
+    try { lock.releaseLock(); } catch (_) {}
+  }
+}
 
 /* ============================================================================
  * instalarTriggers() — CÓRRELA UNA SOLA VEZ y ya no toques nada más.
