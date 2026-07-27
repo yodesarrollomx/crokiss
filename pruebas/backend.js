@@ -172,7 +172,10 @@ function entorno(opciones) {
     },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     Utilities: {
-      getUuid: () => 'aaaaaaaa-bbbb-cccc-dddd-' + String(Math.random()).slice(2, 14),
+      // lo aleatorio va AL FRENTE: _newId() corta a los primeros 18 caracteres
+      // y con el azar al final todos los ids de prueba salían idénticos
+      getUuid: () => (String(Math.random()).slice(2, 10) + String(Math.random()).slice(2, 10) +
+                      '-aaaa-bbbb-cccc-ddddeeee').slice(0, 36),
       base64Encode: (b) => Buffer.from(b).toString('base64'),
       base64Decode: (b64) => Array.from(Buffer.from(String(b64), 'base64')),
       newBlob: (bytes, mime, nombre) => ({ bytes, mime, nombre, esBlob: true }),
@@ -533,11 +536,12 @@ grupo('Condiciones del comité de inversión (26-jul)');
   ok(/lead nuevo/.test(alertas[0].subject || ''), 'con asunto inconfundible', alertas[0].subject);
   ok(/lead@x\.com/.test(alertas[0].body || '') && /662 123 4567/.test(alertas[0].body || ''),
      'y trae correo y WhatsApp del prospecto para contactarlo');
-  // el mismo dueño actualiza: NO se repite el aviso
-  post(e.sandbox, { mode: 'save', plan_id: JSON.parse(e.correosEnviados.length && '0') || undefined,
+  // el mismo dueño actualiza SU proyecto (por plan_id): NO se repite el aviso
+  const pidLead = String(e.hojas.Planos.celdas[1][1]);
+  post(e.sandbox, { mode: 'save', plan_id: pidLead,
                     correo: 'lead@x.com', clave: 'clave-uno', plan_name: 'Mi refugio', geom: GEOM_REAL });
   ok(e.correosEnviados.filter((c) => c.to === 'direccion@aurumarquitectos.com').length === 1,
-     'actualizar el mismo proyecto NO vuelve a avisar');
+     'actualizar el mismo proyecto (con su plan_id) NO vuelve a avisar');
 
   // si TODO el correo revienta, el error queda LEGIBLE en la pestaña Eventos
   {
@@ -585,6 +589,65 @@ grupo('Condiciones del comité de inversión (26-jul)');
   ok(evs.indexOf('volvio_por_correo') >= 0, 'y el enlace del correo sigue contando como volvio_por_correo');
   ok(evs.filter((x) => x === 'volvio_por_correo').length === 1,
      'sin que la vitrina infle esa métrica (1 y 1, no 2 y 0)');
+}
+
+grupo('El bug histórico: clave reusada YA NO pisa el croquis anterior');
+{
+  const mk = () => entorno({ hojas: { Planos: hojaFalsa('Planos', []),
+    Historial: hojaFalsa('Historial', [], ['ts','plan_id','plan_name','correo','version','geom_json']) } });
+
+  // LA reproducción exacta: ✦ Nuevo → mismo correo, misma clave, mismo nombre
+  const e = mk();
+  const GEOM_A = JSON.parse(JSON.stringify(GEOM_REAL)); GEOM_A.walls[0].x2 = 7.77;   // huella única
+  const r1 = post(e.sandbox, { mode: 'save', correo: 'ana@x.com', clave: 'mi-clave-de-siempre',
+                               plan_name: 'Mi proyecto', geom: GEOM_A });
+  const r2 = post(e.sandbox, { mode: 'save', correo: 'ana@x.com', clave: 'mi-clave-de-siempre',
+                               plan_name: 'Mi proyecto', geom: GEOM_REAL });
+  ok(r1.ok && r2.ok, 'los dos guardados pasan');
+  ok(r2.plan_id !== r1.plan_id, 'el segundo es un proyecto NUEVO, no el mismo');
+  ok(r2.plan_name === 'Mi proyecto (2)', 'y se renombró solo: «Mi proyecto (2)»', r2.plan_name);
+  const filas = e.hojas.Planos.celdas.slice(1);
+  ok(filas.length === 2, 'hay DOS filas: nada se sobrescribió');
+  const geomFila1 = String(filas[0][e.hojas.Planos.colDe('geom_json') - 1]);
+  ok(geomFila1.indexOf('7.77') >= 0, 'y el croquis original sigue INTACTO (la huella 7.77 vive)');
+  // el tercero
+  const r3 = post(e.sandbox, { mode: 'save', correo: 'ana@x.com', clave: 'mi-clave-de-siempre',
+                               plan_name: 'Mi proyecto', geom: GEOM_REAL });
+  ok(r3.plan_name === 'Mi proyecto (3)', 'el tercero: «Mi proyecto (3)»');
+
+  // con plan_id explícito SÍ actualiza (esa es la única llave que sobrescribe)
+  const r4 = post(e.sandbox, { mode: 'save', plan_id: r1.plan_id, correo: 'ana@x.com',
+                               clave: 'mi-clave-de-siempre', plan_name: 'Mi proyecto', geom: GEOM_REAL });
+  ok(r4.ok && r4.plan_id === r1.plan_id && r4.version === 2,
+     'con plan_id explícito sigue actualizando EN su fila');
+  ok(e.hojas.Planos.celdas.length - 1 === 3, 'sin crear una cuarta');
+}
+{
+  // reclamar_id: el flujo del enlace del correo sigue reanudando SU proyecto
+  const e = mk2();
+  function mk2() { return entorno({ hojas: { Planos: hojaFalsa('Planos', [filaMigrada('ckMio', 'ana@x.com', 'clave-uno', 'Casa Ana')]),
+    Historial: hojaFalsa('Historial', [], ['ts','plan_id','plan_name','correo','version','geom_json']) } }); }
+  const rr = post(e.sandbox, { mode: 'save', reclamar_id: 'ckMio', correo: 'ana@x.com',
+                               clave: 'clave-uno', plan_name: 'Casa Ana', geom: GEOM_REAL });
+  ok(rr.ok && rr.plan_id === 'ckMio' && rr.isNew === false,
+     'reclamar_id con dueño verificado REANUDA ese proyecto');
+  ok(e.hojas.Planos.celdas.length - 1 === 1, 'sin duplicar');
+
+  // un visitante que abrió el enlace de OTRO y guarda con SU cuenta
+  const e2 = mk2();
+  const rv = post(e2.sandbox, { mode: 'save', reclamar_id: 'ckMio', correo: 'visita@x.com',
+                                clave: 'otra-clave-visita', plan_name: 'Casa Ana', geom: GEOM_REAL });
+  ok(rv.ok && rv.plan_id !== 'ckMio' && rv.isNew === true,
+     'reclamar_id ajeno se IGNORA: el visitante crea el suyo, sin error y sin pisar nada');
+  const filaMia = e2.hojas.Planos.celdas[1];
+  ok(String(filaMia[4]) === 'ana@x.com', 'el proyecto de Ana quedó intacto');
+}
+{
+  // sync ya no reanuda por nombre: sin plan_id, no_existe
+  const e = entorno({ hojas: { Planos: hojaFalsa('Planos', [filaMigrada('ckS', 's@x.com', 'clave-uno', 'Mi proyecto')]) } });
+  ok(post(e.sandbox, { mode: 'sync', correo: 's@x.com', clave: 'clave-uno',
+                       plan_name: 'Mi proyecto', geom: GEOM_REAL }).error === 'no_existe',
+     'sync sin plan_id responde no_existe (ya no adivina por nombre)');
 }
 
 grupo('Tope de 45.000 (la bomba de tiempo de Sheets)');

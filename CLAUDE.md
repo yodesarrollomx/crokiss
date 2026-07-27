@@ -223,6 +223,17 @@ Verificado en vivo con sink local: el POST de guardado llegó con `png` (494 KB)
 
 ⚠️ **Requiere pegar `Code.gs` en Apps Script otra vez** (Versión nueva sobre la implementación existente). El front ya publicado es compatible con el backend anterior: los campos nuevos (`png`, `telefono`, `src`) simplemente se ignoran hasta el re-despliegue.
 
+### El último bug conocido, cerrado (2026-07-26 noche)
+
+**Clave reusada ya no pisa nada.** Desde junio: guardar un "proyecto nuevo" con el mismo correo+clave+nombre **sobrescribía el croquis anterior en silencio** (el caso normal de la gente: reusar su clave de siempre y dejar "Mi proyecto"). Regla nueva:
+
+- **Sobrescribir exige identidad**: `plan_id` del dueño, o `reclamar_id` (pista del flujo `?open` → guardar) **verificado contra las credenciales**. Un `reclamar_id` ajeno se ignora sin error: el visitante crea el suyo.
+- **Sin identidad, SIEMPRE se crea**: nombre repetido dentro de la cuenta → se renombra «Mi proyecto (2)», la respuesta devuelve `plan_name` final y el front avisa con un toast.
+- `sync` ya no adivina por nombre: sin `plan_id` → `no_existe`.
+- Compatibilidad en ambos sentidos: front viejo + backend nuevo = duplica en vez de pisar (más seguro); front nuevo + backend viejo = `reclamar_id` se ignora y el flujo del correo reanuda por nombre como antes.
+
+Con esto, **no queda ningún defecto conocido en espera**. Pruebas: 168 backend + 309 harness.
+
 ## Pendiente (backend, para segunda ronda — NO shippeado por riesgo)
 
 Todo lo de esta lista **ya se hizo** en P1–P6: hasheo de clave con migración (P2), poda del Historial y búsqueda por TextFinder (P1), y alerta de salud (`healthPing`, P1). Se conserva el respaldo semanal (`respaldoSemanal`) del trigger de junio.

@@ -4,8 +4,10 @@
  *   doGet   -> listar proyectos (action:'list') o abrir uno (action:'plan')
  *
  * Modelo: correo + clave = tu "cuenta". Bajo ella puede haber VARIOS
- * proyectos (cada uno con su plan_id). Guardar con plan_id actualiza ese
- * proyecto; sin plan_id, si el nombre ya existe lo reanuda, si no, crea uno.
+ * proyectos (cada uno con su plan_id). Guardar con plan_id (o reclamar_id
+ * verificado) actualiza ESE proyecto; sin identidad, SIEMPRE crea uno nuevo
+ * (nombre repetido → se renombra «X (2)»). Sobrescribir exige identidad:
+ * un nombre igual jamás vuelve a pisar un croquis.
  *
  * El POST llega como text/plain para evitar el "preflight" de CORS.
  *
@@ -322,7 +324,7 @@ function doPost(e) {
     // no cuando alguien abra la hoja. Jamás puede romper el guardado.
     if (mode === 'save' && r.isNew) _avisaLeadNuevo(r, correo);
 
-    return _json({ ok: true, plan_id: r.planId, version: r.version, isNew: r.isNew, emailed: emailed });
+    return _json({ ok: true, plan_id: r.planId, plan_name: r.planName, version: r.version, isNew: r.isNew, emailed: emailed });
 
   } catch (err) {
     console.error('doPost: ' + (err && err.stack ? err.stack : err));
@@ -356,14 +358,23 @@ function _guardarFila(mode, correo, clave, geomStr, body) {
     if (rowIdx > 0) existing = _rowObj(meta.data[rowIdx - 2], col);
     if (existing && !_autorizado(sh, meta, rowIdx, existing, correo, clave))
       return { error: 'no_autorizado' };          // seguridad: dueño correcto
-  } else {                                       // sin id: reanudar por nombre o crear
-    for (var j = 0; j < meta.data.length; j++)
-      if (String(meta.data[j][col.correo]).toLowerCase() === correo &&
-          _claveOkArr(meta.data[j], col, clave) &&
-          String(meta.data[j][col.plan_name]) === planName) {
-        rowIdx = j + 2; existing = _rowObj(meta.data[j], col); break;
-      }
+  } else if (body.reclamar_id) {
+    /* Reanudar por ID como PISTA del front (flujo ?open → guardar con clave):
+       si la fila existe y estas credenciales son sus dueñas, se reanuda ese
+       proyecto. Si no (p. ej. un visitante que abrió el enlace de otro y
+       guarda con SU cuenta), la pista se ignora y se crea uno nuevo — nunca
+       es un error, nunca pisa nada ajeno. */
+    var ridx = _rowByPlanId(sh, meta, String(body.reclamar_id).slice(0, 60));
+    if (ridx > 0) {
+      var cand = _rowObj(meta.data[ridx - 2], col);
+      if (_autorizado(sh, meta, ridx, cand, correo, clave)) { rowIdx = ridx; existing = cand; }
+    }
   }
+  /* ⚠️ Ya NO se reanuda por nombre. Era el último bug conocido (desde junio):
+     reusar la misma clave en un "proyecto nuevo" con el mismo nombre —el caso
+     NORMAL de la gente, no el raro— sobrescribía el croquis anterior en
+     silencio. Sobrescribir ahora exige identidad explícita (plan_id o
+     reclamar_id con dueño verificado). Un nombre repetido se renombra. */
   var isNew = !existing;
 
   if (mode === 'sync' && isNew) return { error: 'no_existe' };      // sync no crea
@@ -377,6 +388,22 @@ function _guardarFila(mode, correo, clave, geomStr, body) {
     for (var k = 0; k < meta.data.length; k++)
       if (String(meta.data[k][col.correo]).toLowerCase() === correo) count++;
     if (count >= CONFIG.MAX_POR_CORREO) return { error: 'limite_por_correo' };
+  }
+
+  if (isNew) {
+    // Nombre único DENTRO de la cuenta (mismo correo + misma clave): así la
+    // hoja queda legible y ningún guardado nuevo puede confundirse con otro.
+    var tomados = {};
+    for (var q = 0; q < meta.data.length; q++)
+      if (String(meta.data[q][col.correo]).toLowerCase() === correo &&
+          _claveOkArr(meta.data[q], col, clave))
+        tomados[String(meta.data[q][col.plan_name])] = true;
+    if (tomados[planName]) {
+      var base = planName.slice(0, 70);
+      var n2 = 2;
+      while (tomados[base + ' (' + n2 + ')'] && n2 < 99) n2++;
+      planName = base + ' (' + n2 + ')';
+    }
   }
 
   var now      = new Date();

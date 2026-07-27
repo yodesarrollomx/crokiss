@@ -737,6 +737,19 @@ async function main() {
    'hash', 'opcional', '60 días']
     .forEach((t) => ok(aviso.indexOf(t) >= 0, 'el aviso cubre: ' + t));
 
+  /* --- El bug histórico de la clave reusada: lado del cliente --- */
+  grupo('Clave reusada (front): la pista reclamar_id');
+  const cloudRec = fs.readFileSync(path.join(RAIZ, 'crokiss-cloud.js'), 'utf8');
+  ok(/var reclamarId = null;/.test(cloudRec), 'existe la pista reclamarId');
+  ok(/reclamarId = res\.plan_id \|\| planId;/.test(cloudRec),
+     'se captura al abrir desde el enlace del correo (?open sin clave)');
+  ok(/reclamar_id: \(!ident \|\| !ident\.planId\) \? \(reclamarId \|\| ''\) : ''/.test(cloudRec),
+     'viaja en el guardado SOLO cuando no hay identidad propia');
+  const limpiezas = (cloudRec.match(/reclamarId = null;/g) || []).length;
+  ok(limpiezas >= 4, 'se limpia en terreno nuevo, ✦ Nuevo, cerrar sesión y guardado', 'limpiezas: ' + limpiezas);
+  ok(/este se guard\\u00f3 como/.test(cloudRec),
+     'y si el backend renombra, el usuario se entera con un aviso amable');
+
   /* --- Guía de bienvenida: la landing que ve quien llega de una publicación --- */
   grupo('Guía de bienvenida (landing)');
   const guia = $('ck_guia');

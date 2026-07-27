@@ -33,6 +33,9 @@
   var ident = null;            // {planId, correo, clave, planName}
   var lastCreds = null;        // {correo, clave} para precargar el modal de guardar
   var pendingCreds = null;     // credenciales en curso durante "abrir"
+  var reclamarId = null;       // plan abierto desde ?open SIN clave: al guardar,
+                               // esta pista deja reanudar ESE proyecto (el backend
+                               // la ignora si las credenciales no son sus dueñas)
   var lastSeen = '';
   var lastPushed = '';
   var dirty = false;
@@ -235,7 +238,7 @@
     if (b) b.style.display = sesionViva() ? '' : 'none';
   }
   function cerrarSesion() {
-    ident = null; lastCreds = null; pendingCreds = null;
+    ident = null; lastCreds = null; pendingCreds = null; reclamarId = null;
     lastPushed = ''; dirty = false;
     if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; }
     try { localStorage.removeItem(ID_KEY); sessionStorage.removeItem(CLAVE_KEY); } catch (e) {}
@@ -377,6 +380,7 @@
     if (!(w > 0) || !(d > 0)) { toast('Escribe el ancho y el fondo en metros'); return; }
     var g = buildLotGeom(w, d);
     if (ed.loadGeom(g)) {
+      reclamarId = null;                 // terreno nuevo = proyecto nuevo de verdad
       lastSeen = geomStr(); lastPushed = '';
       hide($('ck_modal_terreno'));
       track('terreno_creado', g.lot.w + 'x' + g.lot.d);
@@ -400,12 +404,20 @@
 
     setStatus('Guardando…', 'saving');
     capturaPNG(function (png) {
-    post({ mode: 'save', plan_id: (ident && ident.planId) || '', nombre: nombre, correo: correo, clave: clave,
+    post({ mode: 'save', plan_id: (ident && ident.planId) || '',
+           reclamar_id: (!ident || !ident.planId) ? (reclamarId || '') : '',
+           nombre: nombre, correo: correo, clave: clave,
            plan_name: planNm, marketing: mkt, website: honey, telefono: tel,
            png: png || undefined, client_id: clientId(), geom: ed.getGeom() })
       .then(function (res) {
         if (res && res.ok) {
-          ident = { planId: res.plan_id, correo: correo, clave: clave, planName: planNm };
+          // El backend renombra en vez de sobrescribir: si ya tenías un
+          // proyecto con ese nombre, este se guardó como «X (2)» — se avisa.
+          var nombreFinal = res.plan_name || planNm;
+          if (nombreFinal !== planNm)
+            toast('Ya tenías un proyecto llamado \u00ab' + planNm + '\u00bb \u2014 este se guard\u00f3 como \u00ab' + nombreFinal + '\u00bb');
+          reclamarId = null;
+          ident = { planId: res.plan_id, correo: correo, clave: clave, planName: nombreFinal };
           lastCreds = { correo: correo, clave: clave };
           saveIdent();
           lastPushed = geomStr(); lastSeen = lastPushed; dirty = false;
@@ -507,6 +519,7 @@
             // se conserva para precargarlo y que solo tenga que teclear la clave.
             var correoPrevio = (ident && ident.correo) || (lastCreds && lastCreds.correo) || '';
             ident = null; saveIdent();
+            reclamarId = res.plan_id || planId;
             lastSeen = geomStr(); lastPushed = '';
             lastCreds = correoPrevio ? { correo: correoPrevio, clave: '' } : null;
             setStatus('Escribe tu clave para seguir guardando en la nube', 'warn');
