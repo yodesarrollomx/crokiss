@@ -7,7 +7,7 @@ Guía para operar CroKiss sin saber programar. Tiempo total de despliegue: ~10 m
 1. Sube **todos** los archivos modificados/nuevos al repo `alexpueblag/crokiss` (rama principal):
    `index.html`, `plan-editor.js`, `crokiss-cloud.js`, `plan-sheet.js` (nuevo), `plan-elev.js` (nuevo).
 2. Espera ~1 minuto a que GitHub Pages publique.
-3. Abre https://alexpueblag.github.io/crokiss/ y recarga con **Ctrl+Shift+R** (recarga dura).
+3. Abre https://tableros.yodesarrollo.mx/crokiss/ y recarga con **Ctrl+Shift+R** (recarga dura).
 
 ## 2. Desplegar el BACKEND (Code.gs)
 
