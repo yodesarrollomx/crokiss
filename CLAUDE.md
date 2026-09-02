@@ -163,7 +163,7 @@ Solo front: **no requiere re-desplegar nada.**
 
 ⚠️ **Requiere re-desplegar `Code.gs`** (caducidad de enlaces + borrado ARCO).
 
-- **PNG firmado y con su tipografía.** Pie discreto *"Hecho con CroKiss · Aurum Arquitectos · tableros.yodesarrollo.mx/crokiss"* dibujado en el canvas, **no** una marca de agua sobre el dibujo. Y al clonar el SVG se sustituye `var(--fl)` por la familia literal: fuera del documento esa variable no existe y **todo el PNG salía en sans genérica**.
+- **PNG firmado y con su tipografía.** Pie discreto *"Hecho con CroKiss · Aurum Arquitectos · yodesarrollomx.github.io/crokiss"* dibujado en el canvas, **no** una marca de agua sobre el dibujo. Y al clonar el SVG se sustituye `var(--fl)` por la familia literal: fuera del documento esa variable no existe y **todo el PNG salía en sans genérica**.
 - **Identidad**: favicon SVG inline (el punto terracota), `theme-color`, OG completo, `manifest.json` instalable y `preconnect` a fonts.gstatic.com. **`assets/og.png` (1200×630) está generada con el propio motor**: es la lámina real de un croquis de muestra, junto al claim y la dirección.
 - **Enlace compartible `?plan=ID`**: vitrina sin barra, sin paleta y sin barra de info, con banda artesanal *"Croquis hecho en Cro·Kiss · Dibuja el tuyo gratis →"*. Botón **🔗 Compartir enlace** en la pantalla de éxito. Los enlaces sin credenciales **caducan a los 60 días** (`no_disponible`, con mensaje amable); el dueño entra cuando quiera con su clave. Nunca expone correo ni clave.
   > 🐛 **Bug atrapado aquí:** cargar el croquis compartido llamaba a `save()` y **le pisaba al visitante su propio borrador local**. Por eso el motor ahora tiene modo solo lectura de verdad (`ed.setSoloLectura`): en vitrina no escribe en `localStorage` ni se deja editar. Está probado por comportamiento.
@@ -202,7 +202,7 @@ Pantalla completa que ve **antes de entrar** quien llega desde una publicación:
 Reglas de aparición (`ck_guia_v1` en localStorage, `ck_guia_sesion` en sessionStorage):
 - Sale sola SOLO la primera visita. Si continúan **sin** marcar el check, no reaparece en esa sesión pero sí en la siguiente; **con** el check queda silenciada.
 - **Nunca** encima de `?open=ID` (enlace del correo) ni `?plan=ID` (compartido): esa gente ya conoce la app.
-- `?guia=1` la **fuerza siempre** → es la URL para publicaciones: `https://tableros.yodesarrollo.mx/crokiss/?guia=1`
+- `?guia=1` la **fuerza siempre** → es la URL para publicaciones: `https://yodesarrollomx.github.io/crokiss/?guia=1`
 - Se reabre desde **⋯ Más → ❓ Cómo funciona**.
 - Eventos del embudo: `guia_vista`, `guia_continuar` (extra: `no_mostrar`/`normal`), `guia_reabierta`.
 - Respeta `prefers-reduced-motion` (dibujo quieto en estado final). Vive dentro de `index.html` (mismo script en línea: el harness exige exactamente 1).
@@ -279,7 +279,7 @@ Cubre: los 8 scripts cargan, cero errores de JS al arrancar, la super mejora int
 ## URLs y datos
 
 - Repo: https://github.com/alexpueblag/crokiss
-- Sitio: https://tableros.yodesarrollo.mx/crokiss/
+- Sitio: https://yodesarrollomx.github.io/crokiss/
 - `/exec`: https://script.google.com/macros/s/AKfycbxFtuOvgTIkZehUqcJUA7rWpULGncFLDRZEEPAKLhLTr73dP7v1QdcE73g7yrGdcZyHsg/exec
 - Hoja: "CroKiss — Planos" (pestañas Planos e Historial)
 - Esquema Planos: `ts, plan_id, client_id, nombre, correo, clave, plan_name, version, marketing, source, geom_json`

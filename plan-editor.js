@@ -1560,7 +1560,7 @@
           ctx.fillText('Hecho con CroKiss', 24, VH + 21);
           const w1 = ctx.measureText('Hecho con CroKiss').width;
           ctx.font = '400 14px ' + FUENTE_PNG; ctx.fillStyle = '#6b6256';
-          ctx.fillText(' · Aurum Arquitectos · tableros.yodesarrollo.mx/crokiss', 24 + w1, VH + 21);
+          ctx.fillText(' · Aurum Arquitectos · yodesarrollomx.github.io/crokiss', 24 + w1, VH + 21);
           cv.toBlob(function (blob) { cb && cb(blob); }, 'image/png');
         };
         img.onerror = function () { cb && cb(null); };

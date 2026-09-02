@@ -35,7 +35,7 @@ function grupo(nombre) { console.log('\n' + nombre); }
    dependencia de GitHub Pages, y las rutas relativas se resuelven
    igual que en el sitio real. Lo externo (Google Fonts) se responde
    vacío para que la prueba sea offline y determinista.            */
-const BASE = 'https://tableros.yodesarrollo.mx/crokiss/';
+const BASE = 'https://yodesarrollomx.github.io/crokiss/';
 
 const servirLocal = requestInterceptor((request) => {
   const url = request.url;
@@ -559,7 +559,7 @@ async function main() {
 
   // PNG firmado y con la tipografía correcta
   ok(/Hecho con CroKiss/.test(fuente6), 'el PNG lleva el pie de firma');
-  ok(/tableros\.yodesarrollo\.mx\/crokiss/.test(fuente6), 'con la dirección del sitio');
+  ok(/yodesarrollomx\.github\.io\/crokiss/.test(fuente6), 'con la dirección del sitio');
   ok(/FUENTE_PNG = "'Saira Semi Condensed'/.test(fuente6),
      'y la familia literal para que el PNG no salga en sans genérica');
   ok(/svg\.querySelectorAll\('\[font-family\]'\)/.test(fuente6),
