@@ -4,6 +4,9 @@ Lee este archivo completo antes de tocar nada.
 
 > Reordenado el **2026-09-04**: se conservó el contenido útil del anterior; lo vencido va ~~tachado~~.
 
+
+> **Historia completa:** el documento anterior (fases P0–P6, enjambre de UX, condiciones del comité de inversión y bugs cerrados, hasta el 26-jul-2026) se conservó íntegro en [`docs/HISTORIA-2026-07.md`](docs/HISTORIA-2026-07.md). Nada se borró al reordenar este archivo el 4-sep-2026.
+
 ## Qué es
 
 Editor de planos 2D (muros, ventanas, puertas, corredizas, muebles, etiquetas) que arranca pidiendo
