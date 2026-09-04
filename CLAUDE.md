@@ -49,7 +49,10 @@ volver. **Cada guardado = un lead**; la métrica de uso son los correos distinto
    (memoria `rename-github-yodesarrollomx`, auditoría 2-sep).
 9. **Sin frameworks ni build.** HTML/CSS/JS puro + SVG; jsdom es dependencia solo de pruebas
    (`node_modules/`, `package.json` en `.gitignore`).
-10. **Subir `CK_VERSION` en cada despliegue del front** (`index.html:825`; hoy `2026-07-26`).
+10. **Subir `CK_VERSION` en cada despliegue del front** (`index.html:825`). **Hoy la regla está rota:**
+    la constante quedó congelada en `2026-07-26` pese a dos despliegues posteriores que sí tocaron
+    `index.html` — `3c7e5ae` (2026-08-27) y `87e49ef` (2026-09-01). Producción **no** es el front del
+    26-jul. No la leas como sello de qué está desplegado hasta que se suba (pendiente 7).
 
 ## Archivos
 
@@ -63,7 +66,7 @@ volver. **Cada guardado = un lead**; la métrica de uso son los correos distinto
 | `plan-elev.js` · `plan-elev-editor.js` | Fachadas de las 4 orientaciones (`facade(geom,dir)`, envolvente exterior, recorte al terreno) y su editor (overlay `#ck_elevedit`: alturas del proyecto y override por vano) |
 | `plan-furniture.js` · `plan-render.js` | Catálogo de muebles (`PlanFurniture.CATALOG`/`.draw()`) y geometría de muestra heredada de "Proyecto Marbel" |
 | `aviso-privacidad.html` | LFPDPPP: responsable, datos, finalidades, ARCO. Existe porque el dominio aurumarquitectos.com estaba con SSL roto |
-| `pruebas/harness.js` · `pruebas/backend.js` · `OPERACION.md` | Pruebas jsdom y con stubs de Apps Script (no se despliegan) + el manual sin código para Alejandro |
+| `pruebas/harness.js` · `pruebas/backend.js` · `OPERACION.md` | Pruebas jsdom y con stubs de Apps Script + el manual sin código para Alejandro. **Van en el repo, y GitHub Pages sirve el repo entero: se publican.** curl 2026-09-04 sobre `yodesarrollomx.github.io/crokiss/`: `pruebas/harness.js` **200**, `pruebas/backend.js` **200**, `OPERACION.md` **200** — y también `Code.gs` **200**, o sea el backend completo (rate-limits, antiinyección, esquema de la hoja, correo) queda a la vista. No hay secretos ahí dentro, pero es una decisión que hay que tomar: moverlos a una carpeta ignorada o aceptarlo por escrito (pendiente 7) |
 
 ## Arquitectura de datos
 
@@ -140,7 +143,8 @@ Alejandro). El porqué se conserva tal cual venía en el CLAUDE.md anterior.
   Se movieron ligas del front y `CONFIG.SITE_BASE` de `Code.gs`. La casa vieja queda de cascarón.
 - ~~**Pendiente: poner el WhatsApp** (`CONFIG.WHATSAPP` decía `52XXXXXXXXXX`).~~ **OBSOLETO desde
   2026-07-26** (`8e58c4f`): hoy es `wa.me/5216623184512` en `crokiss-cloud.js:27` **y** `Code.gs:53`.
-- ~~**CK_VERSION `2026-07-25`.**~~ **OBSOLETO**: `index.html:825` dice `2026-07-26`.
+- ~~**CK_VERSION `2026-07-25`.**~~ **OBSOLETO**: `index.html:825` dice `2026-07-26` — pero eso ya no
+  dice qué está desplegado, ver regla INVIOLABLE 10.
 - ~~**Pendiente 2ª ronda: hasheo de clave, poda del Historial, alerta de salud.**~~ **OBSOLETO desde
   2026-07-26**: los tres se hicieron en P1–P2 y están vivos en producción.
 
@@ -150,10 +154,11 @@ Alejandro). El porqué se conserva tal cual venía en el CLAUDE.md anterior.
 |---|---|---|---|
 | 1 | **Re-desplegar `Code.gs` con `SITE_BASE` = `yodesarrollomx.github.io/crokiss/`.** El cambio está en el repo (`6779c77`, `Code.gs:46`) pero **no se pudo pegar**: el Apps Script de CroKiss no está compartido con la cuenta que opera desde la Mac. Mientras tanto, los enlaces `?open=ID` que salen por correo apuntan a la casa vieja (el cascarón los reenvía por JS, así que funcionan, pero con un salto de más). | Alejandro: compartir el script o pasar el `scriptId` | Un correo de prueba (o el propio `_sendPlanEmail`) cuyo enlace ya diga `yodesarrollomx.github.io` |
 | 2 | **Crear los 2 activadores de mantenimiento**: `podarHistorial` (diario) y `healthPing` (por horas). Hay un `instalarTriggers()` de un solo ▶ (`5fcbe18`); instrucciones en la cabecera de `Code.gs`. | Alejandro | Captura del panel de Activadores con los dos listados |
-| 3 | **Respaldo semanal** `respaldoSemanal` (paso 3 de `OPERACION.md`). | Alejandro | Carpeta "CroKiss Respaldos" en Drive con al menos una copia |
+| 3 | **Respaldo semanal** `respaldoSemanal` (paso 3 de `OPERACION.md`). **Ojo: esa función NO está en el `Code.gs` de este repo** — `grep -rn respaldoSemanal` solo la encuentra citada en `OPERACION.md:28`, `docs/HISTORIA-2026-07.md:244` y aquí; las que sí existen son `podarHistorial` (:800), `healthPing` (:841) e `instalarTriggers` (:905), y `instalarTriggers` tampoco la crea. O ya vive en el script desplegado (regla INVIOLABLE 2: hay que pedir el `Code.gs` del editor y comprobarlo) o hay que escribirla antes de crear el activador. Si Alejandro sigue el paso 3 tal cual, no va a encontrar la función que se le pide elegir. | Alejandro (activador) + quien toque el backend (comprobar/escribir la función) | Carpeta "CroKiss Respaldos" en Drive con al menos una copia |
 | 4 | **Limpiar filas de prueba** de Planos e Historial y marcar `source='test'` en adelante. | Alejandro | Hoja sin correos de prueba en las métricas |
 | 5 | **SPF/DKIM/DMARC del dominio** para que el correo salga desde `direccion@aurumarquitectos.com` (pasos comentados en `_sendPlanEmail`). Opcional. | Alejandro | Un correo recibido cuyo remitente sea el del dominio |
 | 6 | **Correr el harness antes de cada entrega.** Hoy 2026-09-04 no se pudo: jsdom no está instalado en esta Mac (`/tmp/ck/node_modules` no existe); sí pasó `node --check` en los 9 `.js`. Instalar con `mkdir -p /tmp/ck && cd /tmp/ck && npm init -y && npm i jsdom`. | quien toque el código | `NODE_PATH=/tmp/ck/node_modules node pruebas/harness.js` y `.../backend.js` en verde |
+| 7 | **Decidir qué se hace con `pruebas/*`, `OPERACION.md` y `Code.gs` publicados** (los cuatro dan 200 en Pages, ver Archivos) **y subir `CK_VERSION`** al desplegar (regla INVIOLABLE 10). | Alejandro decide lo primero; quien toque el código, lo segundo | Los archivos en una carpeta ignorada dando 404, o una línea aquí que diga "se acepta público y por qué"; y `CK_VERSION` con la fecha del último despliegue |
 
 ## Por confirmar (no afirmar sin preguntar)
 
