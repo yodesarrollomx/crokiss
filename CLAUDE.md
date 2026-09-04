@@ -278,7 +278,7 @@ Cubre: los 8 scripts cargan, cero errores de JS al arrancar, la super mejora int
 
 ## URLs y datos
 
-- Repo: https://github.com/alexpueblag/crokiss
+- Repo: https://github.com/yodesarrollomx/crokiss
 - Sitio: https://yodesarrollomx.github.io/crokiss/
 - `/exec`: https://script.google.com/macros/s/AKfycbxFtuOvgTIkZehUqcJUA7rWpULGncFLDRZEEPAKLhLTr73dP7v1QdcE73g7yrGdcZyHsg/exec
 - Hoja: "CroKiss — Planos" (pestañas Planos e Historial)

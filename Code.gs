@@ -43,7 +43,7 @@ var CONFIG = {
   SHEET_PLANOS:     'Planos',      // estado actual: 1 fila por proyecto
   SHEET_HISTORIAL:  'Historial',   // bitácora: solo en guardado explícito
   SHEET_EVENTOS:    'Eventos',     // embudo: 1 fila por evento (la analítica es la hoja)
-  SITE_BASE:        'https://alexpueblag.github.io/crokiss/',  // tu URL de GitHub Pages
+  SITE_BASE:        'https://yodesarrollomx.github.io/crokiss/',  // tu URL de GitHub Pages
   EDITOR_FILE:      'index.html',
   REMITENTE_NOMBRE: 'CroKiss · Aurum Arquitectos',
   /* CTA del pie del correo. Debe ser el MISMO número que en crokiss-cloud.js
