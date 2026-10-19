@@ -22,3 +22,7 @@ El workflow `Arquitectura YOD` compara el cambio con una versión fija del atlas
 Revertir el commit de este cambio mediante revisión y repetir las verificaciones locales. No borrar ni restaurar registros de negocio, Sheets o archivos de clientes como parte del rollback. Las migraciones de credenciales irreversibles conservan su regla local de corrección hacia delante; este cambio de gobierno no las ejecuta.
 
 Usa datos sintéticos y dobles para verificar integraciones. No pruebes escrituras en endpoints de producción ni publiques credenciales, datos personales o contenido privado en archivos o logs públicos.
+
+## Recuperación eficiente y auditoría (integración propuesta)
+
+Consultar la [política transversal YOD OS](https://github.com/yodesarrollomx/yod-portal/blob/main/docs/agentes/politica-eficiencia-yod-os.md) cuando esté publicada en la rama principal del portal. Añade triage Jev, filtrado de pasajes, consulta selectiva del grafo opcional, plan/construcción/prueba/revisión/entrega y bitácora verificable. No modifica ni reemplaza ninguna regla local, ni instala herramientas o envía datos privados a proveedores externos.
